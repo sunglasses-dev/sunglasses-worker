@@ -1,0 +1,31 @@
+# Engine parity gate — the Worker's JS engine must match the Python scanner
+# verdict-for-verdict on the full corpus (305 cases x 5 channels = 1,525 pairs).
+# SUNGLASSES_PIN must equal the version patterns.js was compiled from
+# (compile_patterns.py) — bump both together or this gate lies.
+name: parity
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  SUNGLASSES_PIN: 0.2.73
+
+jobs:
+  wide-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install pinned scanner
+        run: pip install "sunglasses==${SUNGLASSES_PIN}"
+      - name: Wide parity (1,525 case-channel pairs)
+        env:
+          SUNGLASSES_SRC: /nonexistent  # force the installed package, not a source tree
+        run: python3 wide_parity.py

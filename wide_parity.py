@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Wide differential: 305 corpus cases x 5 channels through both engines."""
 import json, os, subprocess, sys, tempfile
-SCANNER = os.path.expanduser("~/sunglasses-dev/glasses")
-sys.path.insert(0, SCANNER)
+SCANNER = os.environ.get("SUNGLASSES_SRC", os.path.expanduser("~/sunglasses-dev/glasses"))
+if os.path.isdir(SCANNER):
+    sys.path.insert(0, SCANNER)  # fall back to installed package (CI: pip install sunglasses)
 from sunglasses.engine import SunglassesEngine
 OUT = os.path.dirname(os.path.abspath(__file__))
-SCRATCH = "/private/tmp/claude-501/-Users-azrollin/187dd614-6eb2-46da-81e3-ce2888f20822/scratchpad"
-raw = json.load(open(f"{SCRATCH}/wide_corpus.json"))
+raw = json.load(open(os.path.join(OUT, "corpus", "wide_corpus.json")))
 CHANNELS = ["message", "file", "api_response", "web_content", "log_memory"]
 cases = [{"name": f"{c['name']}|{ch}", "text": c["text"], "channel": ch} for c in raw for ch in CHANNELS]
 print(f"running {len(cases)} case-channel pairs through both engines...")
