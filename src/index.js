@@ -4,9 +4,11 @@
 // logged, or forwarded. No cookies, no analytics, no telemetry.
 import { scan, STATS } from "./engine.js";
 import { LIMITATIONS } from "./preprocessor.js";
+import { parseGitHubUrl, fetchRawFile, AGENT_SURFACES, GITHUB_CAPS } from "./github.js";
 
 const MAX_BYTES = 100_000; // Workers CPU guard; the pip scanner has no such cap
 const CHANNELS = ["message", "file", "api_response", "web_content", "log_memory"];
+const DECISION_RANK = { allow: 0, allow_redacted: 1, quarantine: 2, block: 3 };
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -21,18 +23,56 @@ function json(obj, status = 200) {
   });
 }
 
+// Per-IP rate limit (ephemeral counters — NOT storage; privacy stance intact).
+// Binding absent (e.g. local dev without it) → open, so the demo never bricks.
+async function rateLimited(request, env) {
+  if (!env?.RATE_LIMITER) return false;
+  const key = request.headers.get("CF-Connecting-IP") || "unknown";
+  try {
+    const { success } = await env.RATE_LIMITER.limit({ key });
+    return !success;
+  } catch {
+    return false;
+  }
+}
+
+// Turnstile verification — enforced only when TURNSTILE_SECRET is set, so the
+// widget can be wired at launch without a code change.
+async function turnstileFails(body, request, env) {
+  if (!env?.TURNSTILE_SECRET) return false;
+  const token = body?.turnstile_token;
+  if (!token) return true;
+  const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      secret: env.TURNSTILE_SECRET,
+      response: token,
+      remoteip: request.headers.get("CF-Connecting-IP"),
+    }),
+  });
+  const data = await res.json();
+  return !data.success;
+}
+
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
     if (url.pathname === "/scan" && request.method === "POST") {
+      if (await rateLimited(request, env)) {
+        return json({ error: "Rate limit hit — the demo allows 30 scans/minute. The pip scanner has no limits: pip install sunglasses" }, 429);
+      }
       let body;
       try {
         body = await request.json();
       } catch {
         return json({ error: "Body must be JSON: {\"text\": \"...\", \"channel\": \"message\"}" }, 400);
+      }
+      if (await turnstileFails(body, request, env)) {
+        return json({ error: "Human verification failed. Refresh and try again." }, 403);
       }
       const text = body.text;
       if (typeof text !== "string" || !text.length) {
@@ -45,6 +85,63 @@ export default {
       const result = scan(text, channel);
       return json({
         ...result,
+        engine: "sunglasses-worker demo",
+        patterns_version: "0.2.73",
+        product_of_record: "pip install sunglasses",
+      });
+    }
+
+    if (url.pathname === "/scan-github" && request.method === "POST") {
+      if (await rateLimited(request, env)) {
+        return json({ error: "Rate limit hit — the demo allows 30 scans/minute. The pip scanner has no limits: pip install sunglasses" }, 429);
+      }
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "Body must be JSON: {\"url\": \"https://github.com/owner/repo\"}" }, 400);
+      }
+      if (await turnstileFails(body, request, env)) {
+        return json({ error: "Human verification failed. Refresh and try again." }, 403);
+      }
+      const parsed = parseGitHubUrl(body.url);
+      if (parsed.error) return json({ error: parsed.error }, 400);
+
+      const targets = parsed.files.slice(0, GITHUB_CAPS.MAX_FILES);
+      const files = await Promise.all(targets.map(async (t) => {
+        try {
+          const fetched = await fetchRawFile(t.rawUrl);
+          if (fetched.status === 404) return null; // surface not present in this repo
+          if (fetched.status !== 200) return { path: t.path, skipped: fetched.error };
+          const result = scan(fetched.text, "file");
+          return {
+            path: t.path,
+            decision: result.decision,
+            findings: result.findings,
+            bytes: fetched.text.length,
+          };
+        } catch {
+          return { path: t.path, skipped: "fetch failed" };
+        }
+      }));
+
+      const scanned = files.filter((f) => f && f.decision);
+      const skipped = files.filter((f) => f && f.skipped);
+      if (!scanned.length && !skipped.length) {
+        return json({ error: "No agent-input surfaces found (checked: " + AGENT_SURFACES.join(", ") + "). Repo may be private, empty, or not exist." }, 404);
+      }
+      const overall = scanned.reduce(
+        (worst, f) => (DECISION_RANK[f.decision] > DECISION_RANK[worst] ? f.decision : worst),
+        "allow",
+      );
+      return json({
+        repo: `${parsed.owner}/${parsed.repo}`,
+        overall_decision: overall,
+        files_scanned: scanned.length,
+        surfaces_checked: targets.length,
+        note: "Sunglasses scans agent-input surfaces (what an AI agent reads) — it is not a code auditor.",
+        files: scanned,
+        skipped,
         engine: "sunglasses-worker demo",
         patterns_version: "0.2.73",
         product_of_record: "pip install sunglasses",
@@ -68,7 +165,7 @@ export default {
       return new Response(PAGE, { headers: { "Content-Type": "text/html; charset=utf-8", ...CORS } });
     }
 
-    return json({ error: "Not found. Try GET /, GET /about, or POST /scan." }, 404);
+    return json({ error: "Not found. Try GET /, GET /about, POST /scan, or POST /scan-github." }, 404);
   },
 };
 

@@ -5,3 +5,14 @@ compatibility_date = "2026-06-01"
 # PRIVACY: this worker stores nothing. No KV, no D1, no R2, no analytics engine,
 # no tail consumers. Scan payloads live only in request memory.
 workers_dev = true
+
+# Per-IP rate limit: 30 scans/min. Ephemeral counters keyed by IP — no payload
+# ever touches it, so the "no storage" privacy stance holds.
+[[unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 30, period = 60 }
+
+# Turnstile: set TURNSTILE_SECRET via `wrangler secret put TURNSTILE_SECRET`
+# at launch (widget created in CF dash). Unset = not enforced (local dev).
