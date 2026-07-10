@@ -1,0 +1,28 @@
+{
+ "verdict_fail": [],
+ "id_delta": [],
+ "cases": [
+  "attack:ignore-previous",
+  "attack:rot13",
+  "attack:tool-poison",
+  "attack:readme-poison",
+  "attack:homoglyph",
+  "attack:zero-width",
+  "attack:leet",
+  "attack:spaced",
+  "attack:b64",
+  "attack:url-enc",
+  "attack:html-ent",
+  "attack:hex-esc",
+  "negation:neg-example",
+  "negation:neg-donot",
+  "clean:README.md",
+  "clean:engine.py",
+  "clean:preprocessor.py",
+  "clean:prose",
+  "clean:code",
+  "clean:robots",
+  "clean:jsonld",
+  "clean:langchain"
+ ]
+}

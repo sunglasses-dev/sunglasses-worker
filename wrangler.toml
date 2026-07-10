@@ -1,0 +1,7 @@
+name = "sunglasses-scan"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+
+# PRIVACY: this worker stores nothing. No KV, no D1, no R2, no analytics engine,
+# no tail consumers. Scan payloads live only in request memory.
+workers_dev = true
