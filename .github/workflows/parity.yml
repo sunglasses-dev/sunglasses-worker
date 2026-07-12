@@ -12,7 +12,7 @@ on:
   pull_request:
 
 env:
-  SUNGLASSES_PIN: "6054f44"  # scanner main @ PR#70 (1089 patterns, windowed engine)
+  SUNGLASSES_PIN: "a6914a9"  # scanner main @ PR#71 (1089 patterns, FP carrier-anchor sprint)
 
 jobs:
   wide-parity:
