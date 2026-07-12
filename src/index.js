@@ -58,10 +58,13 @@ async function turnstileFails(body, request, env) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    // Same-origin route on sunglasses.dev mounts this worker under /api/*;
+    // workers.dev keeps the bare paths. Normalize so both work.
+    const path = url.pathname.replace(/^\/api(?=\/|$)/, "") || "/";
 
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
-    if (url.pathname === "/scan" && request.method === "POST") {
+    if (path === "/scan" && request.method === "POST") {
       if (await rateLimited(request, env)) {
         return json({ error: "Rate limit hit — the demo allows 30 scans/minute. The pip scanner has no limits: pip install sunglasses" }, 429);
       }
@@ -91,7 +94,7 @@ export default {
       });
     }
 
-    if (url.pathname === "/scan-github" && request.method === "POST") {
+    if (path === "/scan-github" && request.method === "POST") {
       if (await rateLimited(request, env)) {
         return json({ error: "Rate limit hit — the demo allows 30 scans/minute. The pip scanner has no limits: pip install sunglasses" }, 429);
       }
@@ -148,7 +151,7 @@ export default {
       });
     }
 
-    if (url.pathname === "/about") {
+    if (path === "/about") {
       return json({
         what: "Hosted demo of the Sunglasses AI-agent input scanner",
         patterns: STATS.patterns,
@@ -161,7 +164,7 @@ export default {
       });
     }
 
-    if (url.pathname === "/" && request.method === "GET") {
+    if (path === "/" && request.method === "GET") {
       return new Response(PAGE, { headers: { "Content-Type": "text/html; charset=utf-8", ...CORS } });
     }
 
