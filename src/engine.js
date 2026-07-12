@@ -25,6 +25,28 @@ const NEGATION_PHRASES = [
 ];
 const NEGATION_WINDOW = 50;
 
+// Locality rule for whole-document co-occurrence predicates — port of
+// engine.py _match_windowed (PR #69). Anchored (lookahead-led) predicates are
+// evaluated per overlapping window so their (?=.*A)(?=.*B) signals must
+// co-occur LOCALLY; spreading matching words across a 30KB README no longer
+// fires. Sticky-flag exec at lastIndex=0 on a slice == Python rx.match().
+const COOCCUR_WINDOW = 1200;
+const COOCCUR_STRIDE = 600;
+
+function matchWindowed(rx, text) {
+  if (text.length <= COOCCUR_WINDOW) {
+    rx.lastIndex = 0;
+    return rx.exec(text);
+  }
+  for (let i = 0; i < text.length; i += COOCCUR_STRIDE) {
+    rx.lastIndex = 0;
+    const m = rx.exec(text.slice(i, i + COOCCUR_WINDOW));
+    if (m) return m;
+    if (i + COOCCUR_WINDOW >= text.length) break;
+  }
+  return null;
+}
+
 // ── Index build (once per isolate) ──────────────────────────────────────────
 const keywordToPatterns = new Map();
 const regexPatterns = [];
@@ -101,11 +123,20 @@ export function scan(text, channel = "message") {
   for (const { pattern, compiled } of regexPatterns) {
     if (!(pattern.channel || []).includes(channel)) continue;
     if (seen.has(pattern.id)) continue;
-    for (const { rx } of compiled) {
-      rx.lastIndex = 0;
-      const m = rx.exec(text);
+    for (const { rx, anchored } of compiled) {
+      let m;
+      if (anchored) {
+        m = matchWindowed(rx, text);
+      } else {
+        rx.lastIndex = 0;
+        m = rx.exec(text);
+      }
       if (m) {
         seen.add(pattern.id);
+        // NOTE: for windowed matches m.index is slice-relative — Python has the
+        // IDENTICAL behavior (match.start() is window-relative in _match_windowed
+        // results). Do NOT "fix" by adding the window offset; parity depends on
+        // mirroring engine.py exactly.
         const negated = !pattern.negation_immune && checkNegation(text, m.index);
         findings.push(makeFinding(pattern, m[0].slice(0, 50), negated));
         break;
