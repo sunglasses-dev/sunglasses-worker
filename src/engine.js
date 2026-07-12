@@ -13,16 +13,22 @@ const SEVERITY_TO_DECISION = {
   review: "allow_redacted",
 };
 
-const NEGATION_PHRASES = [
+// Split mirrors engine.py: TRUE_NEGATIONS defuse a payload and always downgrade;
+// FRAMING_LABELS only label it, so they downgrade ONLY when the payload is
+// presented illustratively (quoted/fenced) — a bare imperative after a label is
+// a smuggle attempt and is NOT downgraded.
+const TRUE_NEGATIONS = [
   "do not", "don't", "don’t", "dont",
-  "never", "warning:", "warning -",
-  "example of", "example:", "for example",
-  "avoid", "be careful", "watch out for",
-  "beware of", "caution:", "note:",
-  "not run", "not execute", "not use",
+  "never", "avoid", "be careful", "watch out for",
+  "beware of", "not run", "not execute", "not use",
   "should not", "shouldn't", "shouldn’t",
   "must not", "must never",
 ];
+const FRAMING_LABELS = [
+  "warning:", "warning -", "example of", "example:",
+  "for example", "caution:", "note:",
+];
+const QUOTE_CHARS = "\"'`“”‘’«»";
 const NEGATION_WINDOW = 50;
 
 // Locality rule for whole-document co-occurrence predicates — port of
@@ -75,7 +81,15 @@ for (const p of PATTERNS) {
 function checkNegation(text, matchStart) {
   const windowStart = Math.max(0, matchStart - NEGATION_WINDOW);
   const before = text.slice(windowStart, matchStart).toLowerCase();
-  return NEGATION_PHRASES.some((ph) => before.includes(ph));
+  if (TRUE_NEGATIONS.some((ph) => before.includes(ph))) return true;
+  for (const ph of FRAMING_LABELS) {
+    const pos = before.lastIndexOf(ph);
+    if (pos !== -1) {
+      const gap = before.slice(pos + ph.length);
+      if ([...QUOTE_CHARS].some((q) => gap.includes(q))) return true;
+    }
+  }
+  return false;
 }
 
 function makeFinding(pattern, matchedText, negated) {

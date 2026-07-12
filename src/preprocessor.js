@@ -164,10 +164,18 @@ export function normalize(text) {
   text = stripInvisible(text);
   text = normalizeUnicode(text);
   text = replaceHomoglyphs(text);
-  text = decodeHtmlEntities(text);
-  text = decodeUrlEncoding(text);
-  text = decodeHexEscapes(text);
-  text = decodeBase64Segments(text);
+  // Iteratively unwrap LAYERED encodings — base64(base64(...)) etc. (mirrors
+  // preprocessor.py). Loop until stable, capped; clean text breaks after one
+  // pass so the common case pays no extra cost.
+  const DECODE_MAX_PASSES = 3;
+  for (let i = 0; i < DECODE_MAX_PASSES; i++) {
+    const before = text;
+    text = decodeHtmlEntities(text);
+    text = decodeUrlEncoding(text);
+    text = decodeHexEscapes(text);
+    text = decodeBase64Segments(text);
+    if (text === before) break;
+  }
   text = decodeLeetspeak(text);
   text = stripDelimiterPadding(text);
   text = collapseWhitespace(text);
@@ -179,6 +187,11 @@ export function normalize(text) {
     const shape = text.replace(/\bl(?=[a-z])/g, "i");
     if (shape !== text) text = text + " " + shape;
   } else {
+    // Long inputs: reverse/shape enrichment stays OFF (Jun-9 ReDoS), but ROT13
+    // enrichment is safe here — it feeds only the keyword lane (regex lane
+    // matches raw text). Mirrors preprocessor.py.
+    const rot = decodeRot13(text);
+    if (rot !== text) text = text + " " + rot;
     text = text.toLowerCase();
   }
   return text;
