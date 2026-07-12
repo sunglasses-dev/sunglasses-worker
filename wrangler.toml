@@ -6,6 +6,14 @@ compatibility_date = "2026-06-01"
 # no tail consumers. Scan payloads live only in request memory.
 workers_dev = true
 
+# Same-origin mount on the site: sunglasses.dev/api/* → this worker.
+# index.js strips the /api prefix so workers.dev bare paths keep working.
+# Takes effect at the Block 6 `wrangler deploy` — harmless until then.
+# (Top-level key: must stay ABOVE the [[unsafe.bindings]] table header.)
+routes = [
+  { pattern = "sunglasses.dev/api/*", zone_name = "sunglasses.dev" }
+]
+
 # Per-IP rate limit: 30 scans/min. Ephemeral counters keyed by IP — no payload
 # ever touches it, so the "no storage" privacy stance holds.
 [[unsafe.bindings]]
