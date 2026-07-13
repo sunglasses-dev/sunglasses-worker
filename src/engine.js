@@ -1,6 +1,7 @@
 // Sunglasses Worker — engine port of sunglasses/engine.py scan() (v0.2.73).
 // Same lanes, same order: keyword index on NORMALIZED text, regexes on RAW text,
 // negation window, worst-severity decision.
+import { MECHANISMS } from "./mechanisms.js";
 import { PATTERNS } from "./patterns.js";
 import { normalize } from "./preprocessor.js";
 
@@ -58,7 +59,9 @@ const keywordToPatterns = new Map();
 const regexPatterns = [];
 let keywordCount = 0;
 
-for (const p of PATTERNS) {
+// Carriers first, then mechanisms — mirrors engine.py's list order so the
+// findings arrays come out identical (parity harness compares them element-wise).
+for (const p of [...PATTERNS, ...MECHANISMS]) {
   for (const kw of p.keywords || []) {
     const k = kw.toLowerCase();
     if (!keywordToPatterns.has(k)) keywordToPatterns.set(k, []);
@@ -158,11 +161,32 @@ export function scan(text, channel = "message") {
     }
   }
 
+  // Lane 3 — mechanism fallback suppression (port of engine.py step 3b).
+  // A mechanism earns its keep by catching what the carrier list structurally
+  // cannot. When a carrier of the same category already fired at >= severity,
+  // the mechanism is reporting the same attack twice — drop it. Not an evasion
+  // route: suppression requires a carrier to have already matched, i.e. the
+  // input is already caught.
+  let kept = findings;
+  if (findings.some((f) => f.id.startsWith("GLS-MECH-"))) {
+    const carrierMax = new Map();
+    for (const f of findings) {
+      if (f.id.startsWith("GLS-MECH-")) continue;
+      const rank = SEVERITY_ORDER[f.severity] ?? 0;
+      if (rank > (carrierMax.get(f.category) ?? -1)) carrierMax.set(f.category, rank);
+    }
+    kept = findings.filter(
+      (f) =>
+        !f.id.startsWith("GLS-MECH-") ||
+        (carrierMax.get(f.category) ?? -1) < (SEVERITY_ORDER[f.severity] ?? 0)
+    );
+  }
+
   // Decision = worst finding severity.
   let decision = "allow";
-  if (findings.length) {
-    let worst = findings[0];
-    for (const f of findings) {
+  if (kept.length) {
+    let worst = kept[0];
+    for (const f of kept) {
       if ((SEVERITY_ORDER[f.severity] ?? 0) > (SEVERITY_ORDER[worst.severity] ?? 0)) worst = f;
     }
     decision = SEVERITY_TO_DECISION[worst.severity] ?? "quarantine";
@@ -171,14 +195,17 @@ export function scan(text, channel = "message") {
   const elapsed = Date.now() - start;
   return {
     decision,
-    findings,
+    findings: kept,
     channel,
     latency_ms: elapsed > 0 ? elapsed : null,
   };
 }
 
 export const STATS = {
+  // Carriers only — this is the published number (version.json / the site).
+  // Mechanisms are a different kind of thing and get their own line.
   patterns: PATTERNS.length,
+  mechanisms: MECHANISMS.length,
   keywords: keywordCount,
   regex_patterns: regexPatterns.length,
 };
