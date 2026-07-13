@@ -32,6 +32,33 @@ const FRAMING_LABELS = [
 const QUOTE_CHARS = "\"'`“”‘’«»";
 const NEGATION_WINDOW = 50;
 
+// DEFENSIVE FRAMING — mechanisms only (port of engine.py DEFENSIVE_FRAMING).
+// A shape rule also matches prose DESCRIBING the shape: "this scanner detects
+// attempts to exfiltrate API keys to an external server" is a README, not an
+// attack. Downgrades to `review`, never discards, and is scoped to the payload's
+// own sentence so one "detects" in an intro cannot defuse the whole document.
+const DEFENSIVE_FRAMING = [
+  "detect", "detects", "detecting", "detection",
+  "scan for", "scans for", "scanning for",
+  "protect against", "protects against", "protection against",
+  "defend against", "defends against",
+  "block", "blocks", "prevent", "prevents",
+  "flag", "flags", "catch", "catches", "identifies",
+  "attempts to", "attempt to", "tries to",
+  "attackers", "adversaries", "malicious actors", "threat actors",
+  "vulnerability", "vulnerabilities", "exploit", "cve-",
+];
+const DEFENSIVE_WINDOW = 120;
+
+function isDefensivelyFramed(text, matchStart) {
+  let before = text.slice(Math.max(0, matchStart - DEFENSIVE_WINDOW), matchStart).toLowerCase();
+  for (const stop of [". ", "! ", "? ", "\n"]) {
+    const idx = before.lastIndexOf(stop);
+    if (idx !== -1) before = before.slice(idx + stop.length);
+  }
+  return DEFENSIVE_FRAMING.some((p) => before.includes(p));
+}
+
 // Locality rule for whole-document co-occurrence predicates — port of
 // engine.py _match_windowed (PR #69). Anchored (lookahead-led) predicates are
 // evaluated per overlapping window so their (?=.*A)(?=.*B) signals must
@@ -95,7 +122,7 @@ function checkNegation(text, matchStart) {
   return false;
 }
 
-function makeFinding(pattern, matchedText, negated) {
+function makeFinding(pattern, matchedText, negated, defensive = false) {
   const f = {
     id: pattern.id,
     name: pattern.name,
@@ -108,6 +135,10 @@ function makeFinding(pattern, matchedText, negated) {
     f.original_severity = pattern.severity;
     f.severity = "review";
     f.negation_context = true;
+  } else if (defensive) {
+    f.original_severity = pattern.severity;
+    f.severity = "review";
+    f.defensive_context = true;
   }
   return f;
 }
@@ -155,7 +186,13 @@ export function scan(text, channel = "message") {
         // results). Do NOT "fix" by adding the window offset; parity depends on
         // mirroring engine.py exactly.
         const negated = !pattern.negation_immune && checkNegation(text, m.index);
-        findings.push(makeFinding(pattern, m[0].slice(0, 50), negated));
+        // Mechanisms only, and only when negation did not already fire — mirrors
+        // the if/elif ordering in engine.py.
+        const defensive =
+          !negated &&
+          pattern.id.startsWith("GLS-MECH-") &&
+          isDefensivelyFramed(text, m.index);
+        findings.push(makeFinding(pattern, m[0].slice(0, 50), negated, defensive));
         break;
       }
     }
