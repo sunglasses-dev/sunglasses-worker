@@ -141,9 +141,14 @@ export function decodeBase64Segments(text) {
   });
 }
 
+// Both collapse rules bottom out at THREE letters (port of preprocessor.py).
+// They used to require 5 (dotted) / 4 (spaced), which left a hole: splitting one
+// SHORT word was enough to break a phrase match — "ignore a l l previous
+// instructions" normalized with "a l l" intact and matched nothing. Two-letter
+// groups ("e.g", "U S") stay untouched; those are ordinary prose.
 export function stripDelimiterPadding(text) {
   text = text.replace(
-    /\b([a-zA-Z])[.\-_]([a-zA-Z])[.\-_]([a-zA-Z])([.\-_][a-zA-Z]){2,}\b/g,
+    /\b([a-zA-Z])[.\-_]([a-zA-Z])(?:[.\-_][a-zA-Z])+\b/g,
     (m) => m.replace(/[.\-_]/g, ""),
   );
   const parts = text.split(/(\s{2,})/);
@@ -152,7 +157,7 @@ export function stripDelimiterPadding(text) {
     if (/^\s+$/.test(part) && part.length >= 2) {
       out.push(" ");
     } else {
-      out.push(part.replace(/(?<!\w)(?:[a-zA-Z] ){3,}[a-zA-Z](?!\w)/g, (m) => m.replace(/ /g, "")));
+      out.push(part.replace(/(?<!\w)(?:[a-zA-Z] ){2,}[a-zA-Z](?!\w)/g, (m) => m.replace(/ /g, "")));
     }
   }
   return out.join("");
@@ -164,10 +169,18 @@ export function normalize(text) {
   text = stripInvisible(text);
   text = normalizeUnicode(text);
   text = replaceHomoglyphs(text);
-  text = decodeHtmlEntities(text);
-  text = decodeUrlEncoding(text);
-  text = decodeHexEscapes(text);
-  text = decodeBase64Segments(text);
+  // Iteratively unwrap LAYERED encodings — base64(base64(...)) etc. (mirrors
+  // preprocessor.py). Loop until stable, capped; clean text breaks after one
+  // pass so the common case pays no extra cost.
+  const DECODE_MAX_PASSES = 3;
+  for (let i = 0; i < DECODE_MAX_PASSES; i++) {
+    const before = text;
+    text = decodeHtmlEntities(text);
+    text = decodeUrlEncoding(text);
+    text = decodeHexEscapes(text);
+    text = decodeBase64Segments(text);
+    if (text === before) break;
+  }
   text = decodeLeetspeak(text);
   text = stripDelimiterPadding(text);
   text = collapseWhitespace(text);
@@ -179,6 +192,11 @@ export function normalize(text) {
     const shape = text.replace(/\bl(?=[a-z])/g, "i");
     if (shape !== text) text = text + " " + shape;
   } else {
+    // Long inputs: reverse/shape enrichment stays OFF (Jun-9 ReDoS), but ROT13
+    // enrichment is safe here — it feeds only the keyword lane (regex lane
+    // matches raw text). Mirrors preprocessor.py.
+    const rot = decodeRot13(text);
+    if (rot !== text) text = text + " " + rot;
     text = text.toLowerCase();
   }
   return text;

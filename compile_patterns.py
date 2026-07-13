@@ -213,7 +213,9 @@ def main():
               f"// Ported: {len(compiled)} ({kw_only} keyword-only) · Failed: {len(set(f['id'] for f in failed))}\n")
     os.makedirs(os.path.join(OUT_DIR, "src"), exist_ok=True)
     with open(os.path.join(OUT_DIR, "src", "patterns.js"), "w") as f:
-        f.write(banner + "export const PATTERNS = " + json.dumps(compiled, separators=(",", ":")) + ";\n")
+        f.write(banner
+                + f'export const PATTERNS_VERSION = "{SCANNER_VERSION}";\n'
+                + "export const PATTERNS = " + json.dumps(compiled, separators=(",", ":")) + ";\n")
     with open(os.path.join(OUT_DIR, "compile_report.json"), "w") as f:
         json.dump({"total_source": len(PATTERNS), "ported": len(compiled),
                    "keyword_only": kw_only, "failed": failed}, f, indent=1)

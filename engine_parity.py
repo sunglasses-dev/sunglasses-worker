@@ -67,6 +67,25 @@ for n, t, c in [
 ]:
     CASES.append({"name": f"clean:{n}", "text": t, "channel": c})
 
+# 4. THE BENCHMARK — every labeled attack and every README in the FP corpus.
+# A parity harness that only covers cases predating the last change proves
+# nothing about that change. These are the exact inputs the published
+# precision/recall number is computed from, so JS==Python here is the claim
+# "the hosted demo runs the same engine as the pip package" in its strongest
+# testable form. Added Jul-12 with the mechanism layer.
+bench = os.path.join(SCANNER, "tests", "benchmark", "attacks.json")
+if os.path.exists(bench):
+    for a in json.load(open(bench))["attacks"]:
+        CASES.append({"name": f"bench:{a['id']}", "text": a["text"], "channel": a["channel"]})
+
+fp_corpus = os.path.join(SCANNER, "tests", "fp_real_world_corpus")
+if os.path.isdir(fp_corpus):
+    for fn in sorted(os.listdir(fp_corpus)):
+        if not fn.endswith(".md"):
+            continue
+        txt = open(os.path.join(fp_corpus, fn), encoding="utf-8", errors="replace").read()
+        CASES.append({"name": f"corpus:{fn}", "text": txt, "channel": "file"})
+
 # ---- run Python side ----
 eng = SunglassesEngine()
 py_results = []

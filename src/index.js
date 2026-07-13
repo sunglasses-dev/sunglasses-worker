@@ -3,12 +3,27 @@
 // PRIVACY: payloads are scanned in-memory and discarded. Nothing is stored,
 // logged, or forwarded. No cookies, no analytics, no telemetry.
 import { scan, STATS } from "./engine.js";
+import { PATTERNS_VERSION } from "./patterns.js";
 import { LIMITATIONS } from "./preprocessor.js";
 import { parseGitHubUrl, fetchRawFile, AGENT_SURFACES, GITHUB_CAPS } from "./github.js";
 
 const MAX_BYTES = 100_000; // Workers CPU guard; the pip scanner has no such cap
 const CHANNELS = ["message", "file", "api_response", "web_content", "log_memory"];
 const DECISION_RANK = { allow: 0, allow_redacted: 1, quarantine: 2, block: 3 };
+
+// A verdict is a fact about the TEXT, not a judgment of its authors. Security
+// docs, research repos, and pattern databases (ours included) trip the scanner
+// by nature — surface that context with every non-clean result.
+const VERDICT_MEANING =
+  "A match means the scanned text CONTAINS signals that known agent attacks use. " +
+  "In an agent pipeline Sunglasses would stop that text from reaching the model. " +
+  "It is a fact about the content, not an accusation against its authors — security " +
+  "documentation and research repos trigger detections by nature.";
+const SELF_REPOS = new Set(["sunglasses-dev/sunglasses", "sunglasses-dev/sunglasses-worker"]);
+const MIRROR_TEST_NOTE =
+  "Mirror test: this is Sunglasses' own repository. Our files document real attack " +
+  "patterns, so the scanner flags them — there is no allowlist, not even for ourselves. " +
+  "A scanner that can't be bribed is the point.";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -88,8 +103,9 @@ export default {
       const result = scan(text, channel);
       return json({
         ...result,
+        ...(result.decision !== "allow" ? { verdict_meaning: VERDICT_MEANING } : {}),
         engine: "sunglasses-worker demo",
-        patterns_version: "0.2.73",
+        patterns_version: PATTERNS_VERSION,
         product_of_record: "pip install sunglasses",
       });
     }
@@ -137,16 +153,20 @@ export default {
         (worst, f) => (DECISION_RANK[f.decision] > DECISION_RANK[worst] ? f.decision : worst),
         "allow",
       );
+      const repoSlug = `${parsed.owner}/${parsed.repo}`;
+      const selfScan = SELF_REPOS.has(repoSlug.toLowerCase());
       return json({
-        repo: `${parsed.owner}/${parsed.repo}`,
+        repo: repoSlug,
         overall_decision: overall,
         files_scanned: scanned.length,
         surfaces_checked: targets.length,
         note: "Sunglasses scans agent-input surfaces (what an AI agent reads) — it is not a code auditor.",
+        ...(selfScan ? { self_scan: true, self_scan_note: MIRROR_TEST_NOTE } : {}),
+        ...(overall !== "allow" ? { verdict_meaning: VERDICT_MEANING } : {}),
         files: scanned,
         skipped,
         engine: "sunglasses-worker demo",
-        patterns_version: "0.2.73",
+        patterns_version: PATTERNS_VERSION,
         product_of_record: "pip install sunglasses",
       });
     }
@@ -178,7 +198,7 @@ const PAGE = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sunglasses Cloud Scan — try the AI agent input scanner</title>
-<meta name="description" content="Paste any text an AI agent might read — README, MCP tool description, tool output — and see which of 1,112 attack patterns fire. Nothing is stored.">
+<meta name="description" content="Paste any text an AI agent might read — README, MCP tool description, tool output — and see which of ${STATS.patterns.toLocaleString("en-US")} attack patterns fire. Nothing is stored.">
 <style>
 :root{--bg:#0b0c0a;--card:#121310;--card2:#151514;--line:rgba(239,237,228,.12);--text:#efede4;--dim:#9b998f;--accent:#00ff41;--accent-bd:rgba(0,255,65,.45);--red:#ff5d6c;--amber:#ffb84d}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -209,6 +229,8 @@ button:disabled{opacity:.5;cursor:wait}
 .f .meta{font-size:11px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}
 .f .m{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--amber);word-break:break-all;margin-top:6px}
 .f p{font-size:13px;color:var(--dim);margin-top:4px}
+.vnote{border:1px dashed var(--line);border-radius:10px;background:var(--card2);padding:12px 16px;margin-top:10px;font-size:13px;color:var(--dim)}
+.vnote b{color:var(--text)}
 .privacy{margin-top:26px;font-size:12px;color:var(--dim);border-top:1px solid var(--line);padding-top:14px}
 .privacy a{color:var(--accent);text-decoration:none}
 </style>
@@ -217,7 +239,7 @@ button:disabled{opacity:.5;cursor:wait}
 <div class="wrap">
   <span class="pill">Sunglasses Cloud Scan · demo</span>
   <h1>What would your AI agent swallow?</h1>
-  <p class="sub">Paste anything an agent might read — a README, an MCP tool description, tool output, a webpage. The scanner runs 1,112 tested attack patterns against it, right here, in memory. <b>Nothing you paste is stored.</b></p>
+  <p class="sub">Paste anything an agent might read — a README, an MCP tool description, tool output, a webpage. The scanner runs ${STATS.patterns.toLocaleString("en-US")} tested attack patterns against it, right here, in memory. <b>Nothing you paste is stored.</b></p>
 
   <div class="term">
     <div class="bar"><span class="d" style="background:#FF5D6C"></span><span class="d" style="background:#FFB84D"></span><span class="d" style="background:#28C840"></span><span class="mono">sunglasses://cloud-scan</span></div>
@@ -245,7 +267,7 @@ button:disabled{opacity:.5;cursor:wait}
   <div id="out"></div>
 
   <p class="privacy">
-    In-memory scan, discarded on response. No storage, no logging of payloads, no cookies, no telemetry. Demo cap 100KB — the real thing has none: <span class="mono">pip install sunglasses</span> · patterns v0.2.73 · <a href="/about">engine notes</a> · <a href="https://sunglasses.dev">sunglasses.dev</a> · <a href="https://github.com/sunglasses-dev/sunglasses">GitHub</a>
+    In-memory scan, discarded on response. No storage, no logging of payloads, no cookies, no telemetry. Demo cap 100KB — the real thing has none: <span class="mono">pip install sunglasses</span> · patterns v${PATTERNS_VERSION} · <a href="/about">engine notes</a> · <a href="https://sunglasses.dev">sunglasses.dev</a> · <a href="https://github.com/sunglasses-dev/sunglasses">GitHub</a>
   </p>
 </div>
 <script>
@@ -264,6 +286,7 @@ go.onclick = async () => {
     const label = { block:'⛔ BLOCK', quarantine:'⚠️ QUARANTINE', allow:'✅ ALLOW', allow_redacted:'⚠️ ALLOW (REDACTED)' }[d.decision] || d.decision.toUpperCase();
     const timing = d.latency_ms ? ' · ' + d.latency_ms + 'ms' : '';
     out.innerHTML = '<div class="verdict ' + cls + '"><span>' + label + '</span><span>' + d.findings.length + ' finding' + (d.findings.length===1?'':'s') + timing + '</span></div>' +
+      (d.verdict_meaning ? '<div class="vnote"><b>What this means:</b> ' + esc(d.verdict_meaning) + '</div>' : '') +
       d.findings.slice(0, 25).map(f => '<div class="f"><div class="meta">' + f.id + ' · ' + f.category + ' · ' + f.severity + '</div><b>' + esc(f.name) + '</b><p>' + esc(f.description || '') + '</p><div class="m">matched: ' + esc(f.matched_text || '') + '</div></div>').join('') +
       (d.findings.length > 25 ? '<div class="f"><p>+' + (d.findings.length - 25) + ' more findings</p></div>' : '');
   } catch (e) { out.innerHTML = '<div class="verdict v-quarantine">Request failed: ' + esc(String(e)) + '</div>'; }

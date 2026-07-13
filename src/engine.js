@@ -1,6 +1,7 @@
 // Sunglasses Worker — engine port of sunglasses/engine.py scan() (v0.2.73).
 // Same lanes, same order: keyword index on NORMALIZED text, regexes on RAW text,
 // negation window, worst-severity decision.
+import { MECHANISMS } from "./mechanisms.js";
 import { PATTERNS } from "./patterns.js";
 import { normalize } from "./preprocessor.js";
 
@@ -13,17 +14,50 @@ const SEVERITY_TO_DECISION = {
   review: "allow_redacted",
 };
 
-const NEGATION_PHRASES = [
+// Split mirrors engine.py: TRUE_NEGATIONS defuse a payload and always downgrade;
+// FRAMING_LABELS only label it, so they downgrade ONLY when the payload is
+// presented illustratively (quoted/fenced) — a bare imperative after a label is
+// a smuggle attempt and is NOT downgraded.
+const TRUE_NEGATIONS = [
   "do not", "don't", "don’t", "dont",
-  "never", "warning:", "warning -",
-  "example of", "example:", "for example",
-  "avoid", "be careful", "watch out for",
-  "beware of", "caution:", "note:",
-  "not run", "not execute", "not use",
+  "never", "avoid", "be careful", "watch out for",
+  "beware of", "not run", "not execute", "not use",
   "should not", "shouldn't", "shouldn’t",
   "must not", "must never",
 ];
+const FRAMING_LABELS = [
+  "warning:", "warning -", "example of", "example:",
+  "for example", "caution:", "note:",
+];
+const QUOTE_CHARS = "\"'`“”‘’«»";
 const NEGATION_WINDOW = 50;
+
+// DEFENSIVE FRAMING — mechanisms only (port of engine.py DEFENSIVE_FRAMING).
+// A shape rule also matches prose DESCRIBING the shape: "this scanner detects
+// attempts to exfiltrate API keys to an external server" is a README, not an
+// attack. Downgrades to `review`, never discards, and is scoped to the payload's
+// own sentence so one "detects" in an intro cannot defuse the whole document.
+const DEFENSIVE_FRAMING = [
+  "detect", "detects", "detecting", "detection",
+  "scan for", "scans for", "scanning for",
+  "protect against", "protects against", "protection against",
+  "defend against", "defends against",
+  "block", "blocks", "prevent", "prevents",
+  "flag", "flags", "catch", "catches", "identifies",
+  "attempts to", "attempt to", "tries to",
+  "attackers", "adversaries", "malicious actors", "threat actors",
+  "vulnerability", "vulnerabilities", "exploit", "cve-",
+];
+const DEFENSIVE_WINDOW = 120;
+
+function isDefensivelyFramed(text, matchStart) {
+  let before = text.slice(Math.max(0, matchStart - DEFENSIVE_WINDOW), matchStart).toLowerCase();
+  for (const stop of [". ", "! ", "? ", "\n"]) {
+    const idx = before.lastIndexOf(stop);
+    if (idx !== -1) before = before.slice(idx + stop.length);
+  }
+  return DEFENSIVE_FRAMING.some((p) => before.includes(p));
+}
 
 // Locality rule for whole-document co-occurrence predicates — port of
 // engine.py _match_windowed (PR #69). Anchored (lookahead-led) predicates are
@@ -52,7 +86,9 @@ const keywordToPatterns = new Map();
 const regexPatterns = [];
 let keywordCount = 0;
 
-for (const p of PATTERNS) {
+// Carriers first, then mechanisms — mirrors engine.py's list order so the
+// findings arrays come out identical (parity harness compares them element-wise).
+for (const p of [...PATTERNS, ...MECHANISMS]) {
   for (const kw of p.keywords || []) {
     const k = kw.toLowerCase();
     if (!keywordToPatterns.has(k)) keywordToPatterns.set(k, []);
@@ -75,10 +111,18 @@ for (const p of PATTERNS) {
 function checkNegation(text, matchStart) {
   const windowStart = Math.max(0, matchStart - NEGATION_WINDOW);
   const before = text.slice(windowStart, matchStart).toLowerCase();
-  return NEGATION_PHRASES.some((ph) => before.includes(ph));
+  if (TRUE_NEGATIONS.some((ph) => before.includes(ph))) return true;
+  for (const ph of FRAMING_LABELS) {
+    const pos = before.lastIndexOf(ph);
+    if (pos !== -1) {
+      const gap = before.slice(pos + ph.length);
+      if ([...QUOTE_CHARS].some((q) => gap.includes(q))) return true;
+    }
+  }
+  return false;
 }
 
-function makeFinding(pattern, matchedText, negated) {
+function makeFinding(pattern, matchedText, negated, defensive = false) {
   const f = {
     id: pattern.id,
     name: pattern.name,
@@ -91,6 +135,10 @@ function makeFinding(pattern, matchedText, negated) {
     f.original_severity = pattern.severity;
     f.severity = "review";
     f.negation_context = true;
+  } else if (defensive) {
+    f.original_severity = pattern.severity;
+    f.severity = "review";
+    f.defensive_context = true;
   }
   return f;
 }
@@ -138,17 +186,44 @@ export function scan(text, channel = "message") {
         // results). Do NOT "fix" by adding the window offset; parity depends on
         // mirroring engine.py exactly.
         const negated = !pattern.negation_immune && checkNegation(text, m.index);
-        findings.push(makeFinding(pattern, m[0].slice(0, 50), negated));
+        // Mechanisms only, and only when negation did not already fire — mirrors
+        // the if/elif ordering in engine.py.
+        const defensive =
+          !negated &&
+          pattern.id.startsWith("GLS-MECH-") &&
+          isDefensivelyFramed(text, m.index);
+        findings.push(makeFinding(pattern, m[0].slice(0, 50), negated, defensive));
         break;
       }
     }
   }
 
+  // Lane 3 — mechanism fallback suppression (port of engine.py step 3b).
+  // A mechanism earns its keep by catching what the carrier list structurally
+  // cannot. When a carrier of the same category already fired at >= severity,
+  // the mechanism is reporting the same attack twice — drop it. Not an evasion
+  // route: suppression requires a carrier to have already matched, i.e. the
+  // input is already caught.
+  let kept = findings;
+  if (findings.some((f) => f.id.startsWith("GLS-MECH-"))) {
+    const carrierMax = new Map();
+    for (const f of findings) {
+      if (f.id.startsWith("GLS-MECH-")) continue;
+      const rank = SEVERITY_ORDER[f.severity] ?? 0;
+      if (rank > (carrierMax.get(f.category) ?? -1)) carrierMax.set(f.category, rank);
+    }
+    kept = findings.filter(
+      (f) =>
+        !f.id.startsWith("GLS-MECH-") ||
+        (carrierMax.get(f.category) ?? -1) < (SEVERITY_ORDER[f.severity] ?? 0)
+    );
+  }
+
   // Decision = worst finding severity.
   let decision = "allow";
-  if (findings.length) {
-    let worst = findings[0];
-    for (const f of findings) {
+  if (kept.length) {
+    let worst = kept[0];
+    for (const f of kept) {
       if ((SEVERITY_ORDER[f.severity] ?? 0) > (SEVERITY_ORDER[worst.severity] ?? 0)) worst = f;
     }
     decision = SEVERITY_TO_DECISION[worst.severity] ?? "quarantine";
@@ -157,14 +232,17 @@ export function scan(text, channel = "message") {
   const elapsed = Date.now() - start;
   return {
     decision,
-    findings,
+    findings: kept,
     channel,
     latency_ms: elapsed > 0 ? elapsed : null,
   };
 }
 
 export const STATS = {
+  // Carriers only — this is the published number (version.json / the site).
+  // Mechanisms are a different kind of thing and get their own line.
   patterns: PATTERNS.length,
+  mechanisms: MECHANISMS.length,
   keywords: keywordCount,
   regex_patterns: regexPatterns.length,
 };
