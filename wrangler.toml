@@ -2,9 +2,18 @@ name = "sunglasses-scan"
 main = "src/index.js"
 compatibility_date = "2026-06-01"
 
-# PRIVACY: this worker stores nothing. No KV, no D1, no R2, no analytics engine,
-# no tail consumers. Scan payloads live only in request memory.
+# PRIVACY: this worker stores no scan content. No KV, no D1, no R2, no tail
+# consumers. Scan payloads live only in request memory. Workers Logs (below)
+# persist INVOCATION METADATA only (method/path/status/timing, ~7d in CF dash)
+# for abuse visibility — request bodies are never captured, and src has zero
+# console.log calls. Enabled Jul-14 2026 (AZ GO) after the CF settings audit.
 workers_dev = true
+
+# Keep in sync with the dashboard (enabled via dash Jul-14 2026) — without
+# this block a future `wrangler deploy` would silently revert logs to off.
+[observability.logs]
+enabled = true
+invocation_logs = true
 
 # Same-origin mount on the site: sunglasses.dev/api/* → this worker.
 # index.js strips the /api prefix so workers.dev bare paths keep working.
