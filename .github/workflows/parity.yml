@@ -12,7 +12,7 @@ on:
   pull_request:
 
 env:
-  SUNGLASSES_PIN: "v0.3.0"  # release tag (1089 patterns)
+  SUNGLASSES_PIN: "v0.3.1"  # release tag (1089 patterns + mechanism layer) — must match the ref patterns.js/mechanisms.js were compiled from
 
 jobs:
   wide-parity:
