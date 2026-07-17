@@ -9,19 +9,26 @@ compatibility_date = "2026-06-01"
 # console.log calls. Enabled Jul-14 2026 (AZ GO) after the CF settings audit.
 workers_dev = true
 
+# Same-origin mount on the site: sunglasses.dev/api/* → this worker.
+# index.js strips the /api prefix so workers.dev bare paths keep working.
+# (Top-level key: MUST sit above every [table] header — it previously sat
+# below [observability.logs], which silently swallowed it; wrangler warned
+# "Unexpected fields found in observability field: routes". Fixed Jul-16 2026.)
+routes = [
+  { pattern = "sunglasses.dev/api/*", zone_name = "sunglasses.dev" }
+]
+
+# Jul-16 2026: /scan GitHub flow 503'd "Worker exceeded resource limits" on real
+# repos (64KB of agent surfaces ~ 2.5s engine CPU, measured). Raise the CPU
+# allowance explicitly — requires Workers paid plan (covered by CF for Startups).
+[limits]
+cpu_ms = 30000
+
 # Keep in sync with the dashboard (enabled via dash Jul-14 2026) — without
 # this block a future `wrangler deploy` would silently revert logs to off.
 [observability.logs]
 enabled = true
 invocation_logs = true
-
-# Same-origin mount on the site: sunglasses.dev/api/* → this worker.
-# index.js strips the /api prefix so workers.dev bare paths keep working.
-# Takes effect at the Block 6 `wrangler deploy` — harmless until then.
-# (Top-level key: must stay ABOVE the [[unsafe.bindings]] table header.)
-routes = [
-  { pattern = "sunglasses.dev/api/*", zone_name = "sunglasses.dev" }
-]
 
 # Per-IP rate limit: 30 scans/min. Ephemeral counters keyed by IP — no payload
 # ever touches it, so the "no storage" privacy stance holds.

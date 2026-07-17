@@ -184,10 +184,32 @@ def main():
                 failed.append({"id": p["id"], "reason": str(e), "regex": rx[:120]})
                 ok = False
                 break
-            # Engine's _is_anchored: lookahead-led whole-document predicates are
-            # evaluated once at position 0 (ReDoS guard) — flag them for the JS engine.
-            anchored = SunglassesEngine._is_anchored(rx)
-            entry["regex"].append({"source": src, "flags": fl, "anchored": anchored})
+            # Evaluation mode — mirrors engine.py's compile step (v0.3.3):
+            #   guarded  — caret-led predicate: negation guards get DOCUMENT
+            #              scope, positive core gets WINDOW scope
+            #   windowed — lookahead-led predicate: whole regex per window
+            #   plain    — ordinary search
+            # The split runs on the PYTHON source (the semantics of record),
+            # then each half is converted to JS separately.
+            split = SunglassesEngine._split_caret_predicate(rx)
+            if split is not None:
+                guards_py, core_py = split
+                try:
+                    core_src, core_fl = convert(core_py)
+                    guards_js = []
+                    for g in guards_py:
+                        g_src, g_fl = convert(g)
+                        guards_js.append({"source": g_src, "flags": g_fl})
+                except ValueError as e:
+                    failed.append({"id": p["id"], "reason": f"guard/core split: {e}", "regex": rx[:120]})
+                    ok = False
+                    break
+                entry["regex"].append({"mode": "guarded", "source": core_src,
+                                       "flags": core_fl, "guards": guards_js})
+            elif SunglassesEngine._is_anchored(rx):
+                entry["regex"].append({"mode": "windowed", "source": src, "flags": fl})
+            else:
+                entry["regex"].append({"mode": "plain", "source": src, "flags": fl})
         if ok:
             slots.append((len(compiled), entry))
             compiled.append(entry)
@@ -198,6 +220,9 @@ def main():
         for ri, r in enumerate(entry["regex"]):
             flat.append({"id": entry["id"], "source": r["source"], "flags": r["flags"]})
             owners.append((idx, ri))
+            for g in r.get("guards", []):
+                flat.append({"id": entry["id"], "source": g["source"], "flags": g["flags"]})
+                owners.append((idx, ri))
     errors = node_validate(flat) if flat else []
     bad_idx = set()
     for (idx, ri), err in zip(owners, errors):

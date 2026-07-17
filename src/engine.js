@@ -67,6 +67,9 @@ function isDefensivelyFramed(text, matchStart) {
 const COOCCUR_WINDOW = 1200;
 const COOCCUR_STRIDE = 600;
 
+// Step 3.5 length gate — port of engine.py CORROBORATE_NORM_MAX (v0.3.3).
+const CORROBORATE_NORM_MAX = 2000;
+
 function matchWindowed(rx, text) {
   if (text.length <= COOCCUR_WINDOW) {
     rx.lastIndex = 0;
@@ -79,6 +82,24 @@ function matchWindowed(rx, text) {
     if (i + COOCCUR_WINDOW >= text.length) break;
   }
   return null;
+}
+
+// Port of engine.py _eval_regex (v0.3.3). "guarded" = caret-led predicate:
+// negation guards keep DOCUMENT scope (a defusing context anywhere in the file
+// defuses — the fastapi lesson), the positive core must co-occur in ONE window.
+function evalRegex(entry, text) {
+  if (entry.mode === "guarded") {
+    for (const g of entry.guards) {
+      g.lastIndex = 0;
+      if (g.exec(text)) return null;
+    }
+    return matchWindowed(entry.rx, text);
+  }
+  if (entry.mode === "windowed") {
+    return matchWindowed(entry.rx, text);
+  }
+  entry.rx.lastIndex = 0;
+  return entry.rx.exec(text);
 }
 
 // ── Index build (once per isolate) ──────────────────────────────────────────
@@ -99,14 +120,28 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
     const compiled = [];
     for (const r of p.regex) {
       try {
-        // Anchored whole-document predicates run once at position 0 via sticky
-        // flag (mirrors Python .match) — the ReDoS guard from engine.py.
-        compiled.push({ rx: new RegExp(r.source, r.flags + (r.anchored ? "y" : "")), anchored: r.anchored });
+        // Predicates (windowed/guarded cores + doc-wide guards) run at position
+        // 0 via sticky flag (mirrors Python .match) — the ReDoS guard from
+        // engine.py. Plain regexes keep ordinary exec (Python .search).
+        const sticky = r.mode !== "plain";
+        compiled.push({
+          mode: r.mode,
+          rx: new RegExp(r.source, r.flags + (sticky ? "y" : "")),
+          guards: (r.guards || []).map((g) => new RegExp(g.source, g.flags + "y")),
+        });
       } catch { /* validated at compile time; never expected */ }
     }
     if (compiled.length) regexPatterns.push({ pattern: p, compiled });
   }
 }
+
+// CORROBORATE, DON'T STAMP (v0.3.3) — ids of patterns with at least one usable
+// compiled regex. For these, a bare keyword substring match is a PRE-SCREEN,
+// never a verdict: the pattern's own regex must confirm before a finding is
+// stamped. Port of engine.py _regex_bearing_ids (the claude-seo lesson:
+// "authoritative" ⊂ "Authoritativeness" stamped 55 keyword-only BLOCKs).
+const regexBearingIds = new Set(regexPatterns.map(({ pattern }) => pattern.id));
+const compiledById = new Map(regexPatterns.map(({ pattern, compiled }) => [pattern.id, compiled]));
 
 function checkNegation(text, matchStart) {
   const windowStart = Math.max(0, matchStart - NEGATION_WINDOW);
@@ -153,13 +188,21 @@ export function scan(text, channel = "message") {
   const seen = new Set();
 
   // Lane 1 — keywords on normalized text (substring containment, same as the
-  // engine's dependency-free fallback path).
+  // engine's dependency-free fallback path). v0.3.3: a keyword hit on a
+  // regex-bearing pattern is a PRE-SCREEN into `candidates`, not a verdict —
+  // the pattern's own regex must confirm (lane 2 on raw, lane 2.5 on
+  // normalized). Keyword-only patterns keep keyword-verdict behavior.
+  const candidates = new Map();
   for (const [keyword, patterns] of keywordToPatterns) {
     const idx = normalized.indexOf(keyword);
     if (idx === -1) continue;
     for (const pattern of patterns) {
       if (!(pattern.channel || []).includes(channel)) continue;
-      if (seen.has(pattern.id)) continue;
+      if (seen.has(pattern.id) || candidates.has(pattern.id)) continue;
+      if (regexBearingIds.has(pattern.id)) {
+        candidates.set(pattern.id, pattern);
+        continue;
+      }
       seen.add(pattern.id);
       const excerpt = normalized.slice(Math.max(0, idx - 10), Math.min(normalized.length, idx + keyword.length + 20));
       const negated = !pattern.negation_immune && checkNegation(normalized, idx);
@@ -171,14 +214,8 @@ export function scan(text, channel = "message") {
   for (const { pattern, compiled } of regexPatterns) {
     if (!(pattern.channel || []).includes(channel)) continue;
     if (seen.has(pattern.id)) continue;
-    for (const { rx, anchored } of compiled) {
-      let m;
-      if (anchored) {
-        m = matchWindowed(rx, text);
-      } else {
-        rx.lastIndex = 0;
-        m = rx.exec(text);
-      }
+    for (const entry of compiled) {
+      const m = evalRegex(entry, text);
       if (m) {
         seen.add(pattern.id);
         // NOTE: for windowed matches m.index is slice-relative — Python has the
@@ -194,6 +231,29 @@ export function scan(text, channel = "message") {
           isDefensivelyFramed(text, m.index);
         findings.push(makeFinding(pattern, m[0].slice(0, 50), negated, defensive));
         break;
+      }
+    }
+  }
+
+  // Lane 2.5 — corroboration pass (port of engine.py step 3.5, v0.3.3): a
+  // candidate still unconfirmed after the raw-text lane gets one regex try on
+  // the NORMALIZED view — where homoglyph/ROT13/leet folds live — so encoded
+  // evasions still corroborate. Short inputs only (same reasoning as the
+  // preprocessor's enrichment gate: encoding evasions live in short crafted
+  // payloads; a long document's compacted normalized view re-creates the
+  // spread-text FPs the window exists to prevent). A candidate whose regex
+  // fires on neither view is a keyword-only echo and is dropped.
+  if (text.length <= CORROBORATE_NORM_MAX) {
+    for (const [pid, pattern] of candidates) {
+      if (seen.has(pid)) continue;
+      for (const entry of compiledById.get(pid) || []) {
+        const m = evalRegex(entry, normalized);
+        if (m) {
+          seen.add(pid);
+          const negated = !pattern.negation_immune && checkNegation(normalized, m.index);
+          findings.push(makeFinding(pattern, m[0].slice(0, 50), negated));
+          break;
+        }
       }
     }
   }
