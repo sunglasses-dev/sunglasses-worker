@@ -176,6 +176,10 @@ def main():
             "regex": [],
             "description": p.get("description", ""),
         }
+        # Tier flows DB → patterns.py → here → policy.js (curation lever);
+        # entries without an explicit tier derive it at runtime (no regex → B).
+        if p.get("tier"):
+            entry["tier"] = p["tier"]
         ok = True
         for rx in p.get("regex", []) or []:
             try:

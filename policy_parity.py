@@ -18,6 +18,7 @@ OUT = os.path.dirname(os.path.abspath(__file__))
 
 KW = [p["id"] for p in PATTERNS if not p.get("regex")][:2]
 RX = [p["id"] for p in PATTERNS if p.get("regex")][:1]
+DEMOTED = [p["id"] for p in PATTERNS if p.get("tier") == "B" and p.get("regex")][:1]
 
 
 def F(id, sev, cat="prompt_injection", span="x"):
@@ -50,6 +51,9 @@ CASES = [
         F("GLS-A-1", "review"), F("GLS-A-2", "review")]}]},
     {"name": "regex-plus-keyword-mixed", "files": [{"name": "README.md", "findings": [
         F(RX[0], "high"), F(KW[0], "high")]}]},
+    {"name": "curated-tier-b-demotion", "files": [{"name": "README.md", "findings": [
+        F(DEMOTED[0], "critical", span="span one"),
+        F(DEMOTED[0], "critical", span="span two")]}]} if DEMOTED else None,
     {"name": "tier-s-known-attack", "tier_s": ["GLS-SIG-1"], "files": [
         {"name": "README.md", "findings": [F("GLS-SIG-1", "critical"), F("GLS-A-1", "high")]}]},
     {"name": "multi-file-mixed", "files": [
@@ -58,14 +62,18 @@ CASES = [
         {"name": "mcp.json", "findings": []}]},
 ]
 
+CASES = [c for c in CASES if c]
 py = [policy.rollup_repo(c["files"], frozenset(c.get("tier_s", []))) for c in CASES]
 
 runner = """
-import { rollupRepo } from './src/policy.js';
+import { rollupRepo, TIER_B_IDS, TIER_S_SIGNATURE_IDS } from './src/policy.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 const cases = JSON.parse(readFileSync(process.argv[2],'utf8'));
-writeFileSync(process.argv[3], JSON.stringify(cases.map(c =>
-  rollupRepo(c.files, new Set(c.tier_s ?? [])))));
+writeFileSync(process.argv[3], JSON.stringify({
+  results: cases.map(c => rollupRepo(c.files, new Set(c.tier_s ?? []))),
+  tier_b: [...TIER_B_IDS].sort(),
+  tier_s: [...TIER_S_SIGNATURE_IDS].sort(),
+}));
 """
 with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, dir=OUT) as f:
     json.dump(CASES, f); cp = f.name
@@ -73,12 +81,26 @@ rp = os.path.join(OUT, "_policy_runner.mjs"); open(rp, "w").write(runner); op = 
 try:
     r = subprocess.run(["node", rp, cp, op], capture_output=True, text=True, timeout=120, cwd=OUT)
     if r.returncode != 0: print("NODE FAIL:", r.stderr[:1500]); sys.exit(2)
-    js = json.load(open(op))
+    out = json.load(open(op))
+    js = out["results"]
 finally:
     for p in (cp, rp, op):
         if os.path.exists(p): os.unlink(p)
 
 fails = []
+
+# Tier sets must be byte-identical across languages (curation anti-drift).
+py_tier_b = sorted(policy.TIER_B_IDS)
+py_tier_s = sorted(policy.TIER_S_SIGNATURE_IDS)
+if py_tier_b != out["tier_b"]:
+    fails.append("tier-b-set")
+    d1 = sorted(set(py_tier_b) - set(out["tier_b"]))[:5]
+    d2 = sorted(set(out["tier_b"]) - set(py_tier_b))[:5]
+    print(f"  ❌ TIER_B set drift: only-py={d1} only-js={d2}")
+if py_tier_s != out["tier_s"]:
+    fails.append("tier-s-set")
+    print(f"  ❌ TIER_S set drift: py={py_tier_s[:5]} js={out['tier_s'][:5]}")
+
 for c, p, j in zip(CASES, py, js):
     if p != j:
         fails.append(c["name"])
