@@ -1,18 +1,14 @@
 # Engine parity gate — the Worker's JS engine must match the Python scanner
 # verdict-for-verdict on the full corpus (311 cases x 5 channels = 1,555 pairs).
-# SUNGLASSES_PIN must equal the ref patterns.js was compiled from
-# (compile_patterns.py) — bump both together or this gate lies.
-# PIN is a git SHA while the compiled source is unreleased main; flip it to
-# the "v0.3.0" tag at release (plan: ~/SCAN_V030_PLAN_2026-07-11.md Block 6).
+# The reference pin is read from PATTERNS_VERSION inside src/patterns.js —
+# compile_patterns.py stamps it from the source engine, so the pin always
+# travels in the same commit as the recompiled patterns. No manual bump.
 name: parity
 
 on:
   push:
     branches: [main]
   pull_request:
-
-env:
-  SUNGLASSES_PIN: "v0.3.1"  # release tag (1089 patterns + mechanism layer) — must match the ref patterns.js/mechanisms.js were compiled from
 
 jobs:
   wide-parity:
@@ -25,6 +21,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Derive reference pin from compiled patterns
+        run: |
+          PIN="v$(grep -o 'PATTERNS_VERSION = "[^"]*"' src/patterns.js | cut -d'"' -f2)"
+          echo "SUNGLASSES_PIN=${PIN}" >> "$GITHUB_ENV"
+          echo "reference engine pin: ${PIN}"
       - name: Install pinned scanner
         run: pip install "sunglasses @ git+https://github.com/sunglasses-dev/sunglasses.git@${SUNGLASSES_PIN}"
       - name: Wide parity (1,525 case-channel pairs)
