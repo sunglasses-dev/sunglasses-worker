@@ -32,3 +32,11 @@ jobs:
         env:
           SUNGLASSES_SRC: /nonexistent  # force the installed package, not a source tree
         run: python3 wide_parity.py
+      # The engine pin tracks the release patterns.js was compiled from, but
+      # the policy layer is newer than that release — its Python reference is
+      # current main, so it gets its own install.
+      - name: Policy parity (repo-scan ladder, py vs js)
+        run: |
+          python3 -m venv /tmp/policyref
+          /tmp/policyref/bin/pip -q install "sunglasses @ git+https://github.com/sunglasses-dev/sunglasses.git@main"
+          SUNGLASSES_SRC=/nonexistent /tmp/policyref/bin/python policy_parity.py

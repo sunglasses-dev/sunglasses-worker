@@ -6,10 +6,10 @@ import { scan, STATS } from "./engine.js";
 import { PATTERNS_VERSION } from "./patterns.js";
 import { LIMITATIONS } from "./preprocessor.js";
 import { parseGitHubUrl, fetchRawFile, AGENT_SURFACES, GITHUB_CAPS } from "./github.js";
+import { rollupRepo } from "./policy.js";
 
 const MAX_BYTES = 100_000; // Workers CPU guard; the pip scanner has no such cap
 const CHANNELS = ["message", "file", "api_response", "web_content", "log_memory"];
-const DECISION_RANK = { allow: 0, allow_redacted: 1, quarantine: 2, block: 3 };
 
 // A verdict is a fact about the TEXT, not a judgment of its authors. Security
 // docs, research repos, and pattern databases (ours included) trip the scanner
@@ -149,20 +149,41 @@ export default {
       if (!scanned.length && !skipped.length) {
         return json({ error: "No agent-input surfaces found (checked: " + AGENT_SURFACES.join(", ") + "). Repo may be private, empty, or not exist." }, 404);
       }
-      const overall = scanned.reduce(
-        (worst, f) => (DECISION_RANK[f.decision] > DECISION_RANK[worst] ? f.decision : worst),
-        "allow",
-      );
+      // Repo scans are a DISPLAY surface: the policy ladder grades them —
+      // findings are evidence, never a repo-wide enforcement command. BLOCK
+      // language is reserved for real model-input boundaries (POST /scan,
+      // the runtime guard). See src/policy.js / verdict redesign Jul-17.
+      const rollup = rollupRepo(scanned.map((f) => ({ name: f.path, findings: f.findings })));
       const repoSlug = `${parsed.owner}/${parsed.repo}`;
       const selfScan = SELF_REPOS.has(repoSlug.toLowerCase());
+      const recommendation = {
+        clean: "no agent-risk findings",
+        clean_notes: "looks clean — notes below for your review",
+        review_before_agent_ingestion: "review the flagged spans before letting an agent consume them",
+        known_attack: "contains a known attack signature — do not feed to an agent",
+      }[rollup.overall];
       return json({
         repo: repoSlug,
-        overall_decision: overall,
+        verdict: rollup.overall,
+        boundary: rollup.boundary,
+        // Share-safe summary: the line a screenshot carries.
+        summary: `${scanned.length} file(s) scanned · ${rollup.notes.length} note(s)` +
+          (rollup.review.length ? ` · ${rollup.review.length} file(s) to review` : "") +
+          ` · recommendation: ${recommendation}`,
+        notes: rollup.notes,
+        review: rollup.review,
+        signature_hits: rollup.signature_hits,
+        // Legacy field for older clients: ladder mapped onto the old scale.
+        // A repo can only reach "block" through a curated Tier-S signature.
+        overall_decision: { clean: "allow", clean_notes: "allow",
+          review_before_agent_ingestion: "quarantine", known_attack: "block" }[rollup.overall],
         files_scanned: scanned.length,
         surfaces_checked: targets.length,
-        note: "Sunglasses scans agent-input surfaces (what an AI agent reads) — it is not a code auditor.",
+        note: "Sunglasses scans agent-input surfaces (what an AI agent reads) — it is not a code auditor. " +
+          "Per-file decisions show what a runtime guard would do with that file's content at the model-input boundary; " +
+          "the repo verdict is a review recommendation, not a reputation judgment.",
         ...(selfScan ? { self_scan: true, self_scan_note: MIRROR_TEST_NOTE } : {}),
-        ...(overall !== "allow" ? { verdict_meaning: VERDICT_MEANING } : {}),
+        ...(rollup.overall !== "clean" ? { verdict_meaning: VERDICT_MEANING } : {}),
         files: scanned,
         skipped,
         engine: "sunglasses-worker demo",
