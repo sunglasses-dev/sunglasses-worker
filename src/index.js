@@ -6,7 +6,7 @@ import { scan, STATS } from "./engine.js";
 import { PATTERNS_VERSION } from "./patterns.js";
 import { LIMITATIONS } from "./preprocessor.js";
 import { parseGitHubUrl, fetchRawFile, AGENT_SURFACES, GITHUB_CAPS } from "./github.js";
-import { rollupRepo } from "./policy.js";
+import { rollupRepo, TIER_B_IDS, TIER_S_SIGNATURE_IDS } from "./policy.js";
 
 const MAX_BYTES = 100_000; // Workers CPU guard; the pip scanner has no such cap
 const CHANNELS = ["message", "file", "api_response", "web_content", "log_memory"];
@@ -136,7 +136,13 @@ export default {
           return {
             path: t.path,
             decision: result.decision,
-            findings: result.findings,
+            // Repo scans render by TIER, not severity: severity is enforcement
+            // language and never appears under a green banner (AZ, Jul-17).
+            findings: result.findings.map((finding) => ({
+              ...finding,
+              tier: TIER_S_SIGNATURE_IDS.has(finding.id) ? "S"
+                : TIER_B_IDS.has(finding.id) ? "B" : "A",
+            })),
             bytes: fetched.text.length,
           };
         } catch {
@@ -158,7 +164,7 @@ export default {
       const selfScan = SELF_REPOS.has(repoSlug.toLowerCase());
       const recommendation = {
         clean: "no agent-risk findings",
-        clean_notes: "looks clean — notes below for your review",
+        clean_notes: "no blocking agent-input found — notes below for your review",
         review_before_agent_ingestion: "review the flagged spans before letting an agent consume them",
         known_attack: "contains a known attack signature — do not feed to an agent",
       }[rollup.overall];
