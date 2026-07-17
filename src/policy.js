@@ -13,14 +13,21 @@
 // which ships empty — an ordinary pattern can never paint red.
 import { PATTERNS } from "./patterns.js";
 
-// Tier-S: curated known-attack signatures — the only red-capable set.
-export const TIER_S_SIGNATURE_IDS = new Set();
+// Tiers flow from the pattern DB through patterns.py and the compiler:
+//   S — curated known-attack signature (the only red-capable set)
+//   A — regex-confirmed detection (can corroborate toward "review")
+//   B — hint: keyword-only or curation-demoted; notes only, never verdicts
+// Entries without an explicit tier derive it: empty regex list → B, else A.
+// NOTE: Python tests `not p.get("regex")`; the compiled JS shape is an
+// ARRAY, so emptiness must be length-checked.
+export const TIER_S_SIGNATURE_IDS = new Set(
+  PATTERNS.filter((p) => p.tier === "S").map((p) => p.id),
+);
 
-// Tier-B: keyword-only patterns (compiled with an empty regex list) — hints
-// that feed notes, never verdicts. NOTE: Python tests `not p.get("regex")`;
-// the compiled JS shape is an ARRAY, so emptiness must be length-checked.
-const KEYWORD_ONLY_IDS = new Set(
-  PATTERNS.filter((p) => !p.regex || p.regex.length === 0).map((p) => p.id),
+export const TIER_B_IDS = new Set(
+  PATTERNS.filter(
+    (p) => p.tier === "B" || (!p.tier && (!p.regex || p.regex.length === 0)),
+  ).map((p) => p.id),
 );
 
 const CORROBORATING_SEVERITIES = new Set(["high", "critical"]);
@@ -28,7 +35,7 @@ const CORROBORATING_SEVERITIES = new Set(["high", "critical"]);
 export const BOUNDARY_LABEL = "Agent-context decision, not repo reputation.";
 
 export function isNoteOnly(finding) {
-  if (KEYWORD_ONLY_IDS.has(finding.id)) return true;
+  if (TIER_B_IDS.has(finding.id)) return true;
   if (!CORROBORATING_SEVERITIES.has(finding.severity)) return true;
   return false;
 }
