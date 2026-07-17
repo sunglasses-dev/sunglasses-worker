@@ -43,10 +43,12 @@ def main():
         }
         for rx in p.get("regex", []) or []:
             src, fl = convert(rx)
+            # Mode scheme (v0.3.3) — mechanisms are \b-led shape regexes, so
+            # they compile to plain/windowed; the guarded mode is carrier-only.
             entry["regex"].append({
                 "source": src,
                 "flags": fl,
-                "anchored": SunglassesEngine._is_anchored(rx),
+                "mode": "windowed" if SunglassesEngine._is_anchored(rx) else "plain",
             })
         compiled.append(entry)
 
