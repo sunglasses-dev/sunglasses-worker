@@ -9,8 +9,12 @@ const MAX_FILE_BYTES = 100_000;
 const MAX_FILES = 15;
 
 // Files agents actually ingest, tried against the repo's default branch (HEAD).
+// Raw paths are case-sensitive — readme casing varies in the wild (tj/commander.js
+// ships Readme.md), so the common variants are tried explicitly.
 export const AGENT_SURFACES = [
   "README.md",
+  "Readme.md",
+  "readme.md",
   "CLAUDE.md",
   "AGENTS.md",
   "GEMINI.md",
