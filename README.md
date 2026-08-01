@@ -4,7 +4,7 @@ Zero-install demo of the Sunglasses AI-agent input scanner, running on Cloudflar
 The **pip package stays the product of record**; this is a try-before-install front door
 (and the "core infra on Workers" that Workers Launchpad eligibility asks for).
 
-**Status: built + locally verified Jul 8 2026. NOT deployed — awaiting AZ's GO.**
+**Status: demo build, fully parity-tested against the pip scanner (gates below). Not hosted yet — `pip install sunglasses` is the supported way to run Sunglasses today.**
 
 ## What it is
 - `GET /` — paste-and-scan page (dark kit, sample chips, no tracking)
