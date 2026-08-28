@@ -18,16 +18,21 @@ the enforcement, not just the promise.
 
 ## How it was built (and how to trust it)
 `compile_patterns.py` reads the **live scanner package** (`~/sunglasses-dev/glasses`,
-v0.2.73) and emits `src/patterns.js`. Nothing is hand-copied. Then three gates run:
+v0.4.9) and emits `src/patterns.js`. Nothing is hand-copied. Then four gates run:
 
-| Gate | What it proves | Result |
+| Gate | What it proves | Result (measured 2026-08-28, scanner v0.4.9) |
 |---|---|---|
-| `compile_patterns.py` | every regex converts + compiles in V8 | **1112/1112 ported, 0 failed** |
-| `parity_test.py` | each converted regex matches the same strings as Python (generated positives + benign corpus) | **758 regexes, 0 misses · 9,384 benign checks, 0 disagreements** |
-| `engine_parity.py` | end-to-end verdict parity on attack canaries, negation cases, clean files | **22 cases, 0 disagreements** |
-| `wide_parity.py` | 305 corpus cases (harvested from the scanner's own test suite) × 5 channels | **1,525 pairs, 0 verdict splits, 0 finding-set deltas** |
+| `compile_patterns.py` | every regex converts + compiles in V8 | **1407/1407 ported, 0 failed** |
+| `parity_test.py` | each converted regex matches the same strings as Python (generated positives + benign corpus) | **~820 regexes/run, 0 misses · 11,432 benign checks, 0 disagreements** |
+| `engine_parity.py` | end-to-end verdict parity on attack canaries, negation cases, clean files, the full benchmark + FP corpora | **136 cases, 0 verdict splits, 0 finding-set deltas** |
+| `policy_parity.py` | the repo-scan rollup ladder agrees py-vs-js | **14 cases, 0 mismatches** |
+| `wide_parity.py` | 311 corpus cases (harvested from the scanner's own test suite) × 5 channels | **1,555 pairs, 0 verdict splits, 0 finding-set deltas** |
 
-Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && python3 engine_parity.py && python3 wide_parity.py`
+`parity_test.py` generates its positive samples randomly (exrex), so the regex count moves
+run to run — that randomness is what keeps finding new conversion holes. It prints its seed
+every run; replay a failure with `PARITY_SEED=<seed> python3 parity_test.py`.
+
+Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && python3 engine_parity.py && python3 policy_parity.py && python3 wide_parity.py`
 
 ## Honest deltas vs the pip scanner
 - **Unicode word boundaries.** JS `\w`/`\b` are ASCII-only; Python's are unicode-aware.
@@ -37,9 +42,14 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   entities + the ~30 named ones that matter for injection. Numeric is what attacks use.
 - **`str.isprintable()`** is approximated for base64-segment screening.
 - **100KB request cap** (Workers CPU guard). The pip scanner has no cap.
-- **Keyword lane** iterates keywords (7,281 `indexOf` calls); the pip scanner uses an
+- **Keyword lane** iterates keywords (7,024 `indexOf` calls); the pip scanner uses an
   Aho-Corasick automaton when `pyahocorasick` is installed. Same results, different speed
   curve. If p50 latency ever matters, port the automaton.
+- **`.` and carriage returns — CLOSED 2026-08-28.** JS `.` excludes `\r`, Python's excludes
+  only `\n`, so a carriage return inside a `.{0,N}` span used to split a match the pip
+  scanner makes (found by `parity_test.py` on GLS-SC-017 — the CRLF shape a Windows README
+  or an HTTP response carries). `compile_patterns.py` now rewrites every unescaped `.` to
+  `[^\n]`, giving the JS conversion Python's dot semantics exactly. No longer a delta.
 
 ## Performance (local workerd, warm, best-of-5)
 | Payload | Wall time |
