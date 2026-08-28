@@ -4,7 +4,7 @@ Zero-install demo of the Sunglasses AI-agent input scanner, running on Cloudflar
 The **pip package stays the product of record**; this is a try-before-install front door
 (and the "core infra on Workers" that Workers Launchpad eligibility asks for).
 
-**Status: demo build, fully parity-tested against the pip scanner (gates below). Not hosted yet — `pip install sunglasses` is the supported way to run Sunglasses today.**
+**Status: demo build, fully parity-tested against the pip scanner (gates below). Hosted demo: https://sunglasses.dev/api/ (same-origin mount of this Worker; `/scan` is Turnstile-gated). `pip install sunglasses` remains the product of record.**
 
 ## What it is
 - `GET /` — paste-and-scan page (dark kit, sample chips, no tracking)
@@ -70,9 +70,11 @@ Cloudflare freezes `Date.now()` during synchronous execution (timing-attack defe
 `latency_ms` will be `null` in production for pure-CPU scans. The UI hides it rather than
 printing a fake `0ms`. Real timing lives in Cloudflare's own metrics.
 
-## Deploy (NOT YET RUN — needs AZ)
+## Deploy
 ```bash
 npx wrangler dev              # local, http://127.0.0.1:8788
-npx wrangler deploy           # → sunglasses-scan.<subdomain>.workers.dev
+npx wrangler deploy           # → live, routed at sunglasses.dev/api/*
 ```
-Deploying creates a public URL and requires the Workers Paid plan on the account.
+Requires the Workers Paid plan on the account. The deployed worker serves whatever
+`src/patterns.js` was compiled from — check which release is actually live with
+`curl -s https://sunglasses.dev/api/about`, never from this file.
