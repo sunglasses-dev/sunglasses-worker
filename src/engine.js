@@ -130,6 +130,7 @@ export const CHANNEL_ALIASES = {
 
 // ── Index build (once per isolate) ──────────────────────────────────────────
 const keywordToPatterns = new Map();
+export const DEAD_REGEX_IDS = [];  // regexes that failed to construct in THIS runtime
 const regexPatterns = [];
 const declaredChannels = new Set();
 let keywordCount = 0;
@@ -157,7 +158,15 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
           rx: new RegExp(r.source, r.flags + (sticky ? "y" : "")),
           guards: (r.guards || []).map((g) => new RegExp(g.source, g.flags + "y")),
         });
-      } catch { /* validated at compile time; never expected */ }
+      } catch {
+        // Validated at compile time — but only for the Node that ran the
+        // compiler. A runtime with an older V8 (e.g. `(?i:` modifier groups
+        // need Node 23+) can still fail here, silently killing the pattern
+        // (CI caught GLS-SC-002/003 dead on Node 22, 2026-08-28). Record it
+        // so CI can assert the count is zero in ITS runtime; the worker
+        // itself stays fail-open per pattern.
+        DEAD_REGEX_IDS.push(p.id);
+      }
     }
     if (compiled.length) regexPatterns.push({ pattern: p, compiled });
   }
