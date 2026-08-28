@@ -27,6 +27,7 @@ v0.4.9) and emits `src/patterns.js`. Nothing is hand-copied. Then four gates run
 | `engine_parity.py` | end-to-end verdict parity on attack canaries, negation cases, clean files, the full benchmark + FP corpora | **136 cases, 0 verdict splits, 0 finding-set deltas** |
 | `policy_parity.py` | the repo-scan rollup ladder agrees py-vs-js | **14 cases, 0 mismatches** |
 | `wide_parity.py` | 311 corpus cases (harvested from the scanner's own test suite) × 5 channels | **1,555 pairs, 0 verdict splits, 0 finding-set deltas** |
+| `workerd_probe.py` | the three questions only the SERVING runtime can answer — modifier-group regexes construct, unknown channel fails closed, alias channel resolves | **3/3 in `wrangler dev --local`** |
 
 `parity_test.py` generates its positive samples randomly (exrex), so the regex count moves
 run to run — that randomness is what keeps finding new conversion holes. It prints its seed

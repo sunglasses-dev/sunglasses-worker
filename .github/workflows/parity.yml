@@ -56,3 +56,24 @@ jobs:
           python3 -m venv /tmp/policyref
           /tmp/policyref/bin/pip -q install "sunglasses @ git+https://github.com/sunglasses-dev/sunglasses.git@main"
           SUNGLASSES_SRC=/nonexistent /tmp/policyref/bin/python policy_parity.py
+
+  # Deliberately a SEPARATE job, not another step in wide-parity. It boots the
+  # real workerd runtime, which needs an npm install and a binary download —
+  # infrastructure that can hiccup for reasons unrelated to the port. Keeping it
+  # apart means a flaky download reds this job and only this job, instead of
+  # casting doubt on 1,555 clean parity pairs.
+  workerd-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The three questions only the serving runtime can answer: modifier-group
+      # regexes construct, an unknown channel fails closed, an alias channel
+      # reaches the canonical pattern set. Node-side gates cannot see any of it.
+      - name: workerd runtime probes
+        run: python3 workerd_probe.py
