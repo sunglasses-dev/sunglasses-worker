@@ -20,7 +20,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
       - name: Derive reference pin from compiled patterns
         run: |
           PIN="v$(grep -o 'PATTERNS_VERSION = "[^"]*"' src/patterns.js | cut -d'"' -f2)"
@@ -28,6 +28,15 @@ jobs:
           echo "reference engine pin: ${PIN}"
       - name: Install pinned scanner
         run: pip install "sunglasses @ git+https://github.com/sunglasses-dev/sunglasses.git@${SUNGLASSES_PIN}"
+      - name: Regex liveness (every compiled pattern constructs in this runtime)
+        run: |
+          node -e "import('./src/engine.js').then(m => {
+            if (m.DEAD_REGEX_IDS.length) {
+              console.error('DEAD REGEXES in this Node runtime:', m.DEAD_REGEX_IDS.join(', '));
+              process.exit(1);
+            }
+            console.log('all compiled regexes construct: OK');
+          })"
       - name: Wide parity (1,555 case-channel pairs)
         env:
           SUNGLASSES_SRC: /nonexistent  # force the installed package, not a source tree
