@@ -1,0 +1,16 @@
+{
+ "vocab_match": true,
+ "fail_closed": true,
+ "channels_tested": [
+  "agent_input",
+  "code",
+  "conversation",
+  "email",
+  "image_alt_text",
+  "log",
+  "prompt",
+  "tool_output"
+ ],
+ "verdict_fail": [],
+ "id_delta": []
+}

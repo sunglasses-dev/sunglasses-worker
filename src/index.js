@@ -2,14 +2,19 @@
 // POST /scan {text, channel?} → verdict JSON. GET / → paste-and-scan page.
 // PRIVACY: payloads are scanned in-memory and discarded. Nothing is stored,
 // logged, or forwarded. No cookies, no analytics, no telemetry.
-import { scan, STATS } from "./engine.js";
+import { scan, STATS, VALID_CHANNELS } from "./engine.js";
 import { PATTERNS_VERSION } from "./patterns.js";
 import { LIMITATIONS } from "./preprocessor.js";
 import { parseGitHubUrl, fetchRawFile, AGENT_SURFACES, GITHUB_CAPS } from "./github.js";
 import { rollupRepo, TIER_B_IDS, TIER_S_SIGNATURE_IDS } from "./policy.js";
 
 const MAX_BYTES = 100_000; // Workers CPU guard; the pip scanner has no such cap
-const CHANNELS = ["message", "file", "api_response", "web_content", "log_memory"];
+// The channels the paste-and-scan UI offers. The API accepts every channel the
+// engine knows (VALID_CHANNELS: the documented set + pattern-declared synonyms
+// like email/log/image_alt_text); an unknown one is a 400, never a silent
+// coercion to "message" — the caller must not get a clean verdict for a
+// channel we did not actually scan. Mirrors engine.py's fail-closed ValueError.
+const UI_CHANNELS = ["message", "file", "api_response", "web_content", "log_memory"];
 
 // A verdict is a fact about the TEXT, not a judgment of its authors. Security
 // docs, research repos, and pattern databases (ours included) trip the scanner
@@ -99,7 +104,12 @@ export default {
       if (new TextEncoder().encode(text).length > MAX_BYTES) {
         return json({ error: `Demo cap is ${MAX_BYTES / 1000}KB per scan. The pip scanner has no cap: pip install sunglasses` }, 413);
       }
-      const channel = CHANNELS.includes(body.channel) ? body.channel : "message";
+      const channel = body.channel === undefined || body.channel === null || body.channel === ""
+        ? "message"
+        : body.channel;
+      if (!VALID_CHANNELS.has(channel)) {
+        return json({ error: `Unknown channel ${JSON.stringify(channel)}. Valid channels: ${[...VALID_CHANNELS].sort().join(", ")}` }, 400);
+      }
       const result = scan(text, channel);
       return json({
         ...result,
@@ -273,11 +283,7 @@ button:disabled{opacity:.5;cursor:wait}
     <textarea id="txt" placeholder="Paste text an AI agent would read…" spellcheck="false"></textarea>
     <div class="row">
       <select id="channel" aria-label="Channel">
-        <option value="message">channel: message</option>
-        <option value="file">channel: file</option>
-        <option value="api_response">channel: api_response</option>
-        <option value="web_content">channel: web_content</option>
-        <option value="log_memory">channel: log_memory</option>
+        ${UI_CHANNELS.map((c) => `<option value="${c}">channel: ${c}</option>`).join("\n        ")}
       </select>
       <button id="go">SCAN</button>
       <span id="stat" class="mono" style="font-size:12px;color:var(--dim)"></span>

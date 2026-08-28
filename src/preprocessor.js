@@ -1,4 +1,4 @@
-// Sunglasses Worker — preprocessor port of sunglasses/preprocessor.py (v0.2.73).
+// Sunglasses Worker — preprocessor port of sunglasses/preprocessor.py (v0.4.9).
 // Stage order and semantics mirror the Python pipeline; known deltas are listed
 // in LIMITATIONS (exported for the /about payload).
 
@@ -165,7 +165,15 @@ export function stripDelimiterPadding(text) {
 
 const ENRICH_MAX_LEN = 2000;
 
+// Separates the enrichment views (plain / ROT13 / reversed / shape) inside the
+// normalized string — port of preprocessor.py VIEW_SEP (v0.4.3). Excerpts shown
+// to humans are clamped at this boundary so a matched_text window can never
+// splice decoded gibberish onto plain text. Stripped from raw input first so an
+// attacker cannot plant it.
+export const VIEW_SEP = "\x1e";
+
 export function normalize(text) {
+  text = text.split(VIEW_SEP).join(" ");
   text = stripInvisible(text);
   text = normalizeUnicode(text);
   text = replaceHomoglyphs(text);
@@ -186,17 +194,17 @@ export function normalize(text) {
   text = collapseWhitespace(text);
   if (text.length <= ENRICH_MAX_LEN) {
     const rot = decodeRot13(text);
-    if (rot !== text) text = text + " " + rot;
-    text = text + " " + [...text].reverse().join("");
+    if (rot !== text) text = text + " " + VIEW_SEP + " " + rot;
+    text = text + " " + VIEW_SEP + " " + [...text].reverse().join("");
     text = text.toLowerCase();
     const shape = text.replace(/\bl(?=[a-z])/g, "i");
-    if (shape !== text) text = text + " " + shape;
+    if (shape !== text) text = text + " " + VIEW_SEP + " " + shape;
   } else {
     // Long inputs: reverse/shape enrichment stays OFF (Jun-9 ReDoS), but ROT13
     // enrichment is safe here — it feeds only the keyword lane (regex lane
     // matches raw text). Mirrors preprocessor.py.
     const rot = decodeRot13(text);
-    if (rot !== text) text = text + " " + rot;
+    if (rot !== text) text = text + " " + VIEW_SEP + " " + rot;
     text = text.toLowerCase();
   }
   return text;

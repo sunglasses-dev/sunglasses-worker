@@ -6,6 +6,7 @@ Also: Python-vs-JS verdict agreement on a benign corpus (no one-sided fires).
 Exit 0 only if zero disagreements."""
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -14,6 +15,15 @@ import tempfile
 sys.path.insert(0, os.path.expanduser("~/sunglasses-dev/glasses"))
 from sunglasses.patterns import PATTERNS  # noqa: E402
 import exrex  # noqa: E402
+
+# exrex samples are RANDOM, so this gate is nondeterministic by design — that is
+# what lets it keep finding new conversion holes run after run (it found the JS
+# `.`-excludes-\r delta on 2026-08-28). The cost used to be that a failure could
+# not be replayed. Now the seed is printed every run and can be pinned:
+#   PARITY_SEED=1234567 python3 parity_test.py
+SEED = int(os.environ.get("PARITY_SEED") or random.randrange(2**32))
+random.seed(SEED)
+print(f"exrex seed: {SEED}  (replay: PARITY_SEED={SEED} python3 parity_test.py)")
 
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 compiled = {e["id"]: e for e in json.loads(

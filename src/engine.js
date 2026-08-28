@@ -1,9 +1,9 @@
-// Sunglasses Worker — engine port of sunglasses/engine.py scan() (v0.2.73).
+// Sunglasses Worker — engine port of sunglasses/engine.py scan() (v0.4.9).
 // Same lanes, same order: keyword index on NORMALIZED text, regexes on RAW text,
 // negation window, worst-severity decision.
 import { MECHANISMS } from "./mechanisms.js";
 import { PATTERNS } from "./patterns.js";
-import { normalize } from "./preprocessor.js";
+import { normalize, VIEW_SEP } from "./preprocessor.js";
 
 const SEVERITY_ORDER = { critical: 4, high: 3, medium: 2, low: 1, review: 0 };
 const SEVERITY_TO_DECISION = {
@@ -102,14 +102,42 @@ function evalRegex(entry, text) {
   return entry.rx.exec(text);
 }
 
+// ── CHANNEL VOCABULARY (port of engine.py, v0.4.3) ──────────────────────────
+// The channels the public API documents. Kept even if no loaded pattern
+// currently declares one, so the documented contract always validates.
+// Pattern-declared channels are unioned in during the index build below.
+const DOCUMENTED_CHANNELS = [
+  "message", "file", "api_response", "web_content", "log_memory",
+  "tool_output", "agent_input", "code", "prompt",
+];
+
+// Sparse or synonym channels union with their canonical provenance. The
+// 9-channel matrix showed a valid-but-sparse channel could silently ALLOW an
+// obvious injection: "prompt" had 3 patterns, "email" 1, "code" 28 — so
+// scanning with the most natural channel name gave clean false reassurance. A
+// scan on an alias channel matches patterns declaring EITHER name; channel-
+// specific patterns still fire. Canonical channels are untouched, so the
+// FP-hardened file/message corpora govern the inherited scope.
+export const CHANNEL_ALIASES = {
+  prompt: "message",        // a prompt is a message-borne instruction
+  conversation: "message",
+  email: "message",         // an email body is a message
+  log: "log_memory",
+  image_alt_text: "web_content",
+  code: "file",             // source code is a file; the clean-code FP corpus
+                            // was built on the file channel
+};
+
 // ── Index build (once per isolate) ──────────────────────────────────────────
 const keywordToPatterns = new Map();
 const regexPatterns = [];
+const declaredChannels = new Set();
 let keywordCount = 0;
 
 // Carriers first, then mechanisms — mirrors engine.py's list order so the
 // findings arrays come out identical (parity harness compares them element-wise).
 for (const p of [...PATTERNS, ...MECHANISMS]) {
+  for (const ch of p.channel || []) declaredChannels.add(ch);
   for (const kw of p.keywords || []) {
     const k = kw.toLowerCase();
     if (!keywordToPatterns.has(k)) keywordToPatterns.set(k, []);
@@ -142,6 +170,53 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
 // "authoritative" ⊂ "Authoritativeness" stamped 55 keyword-only BLOCKs).
 const regexBearingIds = new Set(regexPatterns.map(({ pattern }) => pattern.id));
 const compiledById = new Map(regexPatterns.map(({ pattern, compiled }) => [pattern.id, compiled]));
+
+// Fail-closed channel vocabulary (port of engine.py, v0.4.3). An unknown
+// channel used to filter out EVERY pattern and return a clean ALLOW — silent
+// false safety. Valid = the documented API channels plus every channel any
+// loaded pattern declares, so a typo can never scan against nothing.
+export const VALID_CHANNELS = new Set([...DOCUMENTED_CHANNELS, ...declaredChannels]);
+
+// Python str.isalnum() is unicode-aware; \p{L}\p{N} is the closest JS
+// equivalent (letters + every numeric category). Wider than ASCII \w, which is
+// why the \w/\b limitation note does not apply to this check.
+const ALNUM = /[\p{L}\p{N}]/u;
+
+// Port of engine.py _word_bounded (v0.4.3), the "ignore previously cached
+// tokens" false block: "ignore previous" substring-matched inside "previously".
+// English false positives are suffix morphology (-ly, -es, -ing), so only the
+// TRAILING edge is enforced. The LEADING edge stays permissive ON PURPOSE:
+// layered base64 decoding leaves residue glued to the front of a payload
+// ("aignore all previous instructions"), and a leading check would hand
+// attackers a one-character evasion (benchmark case OB-B64x2-01).
+function wordBounded(text, start, keyword) {
+  const end = start + keyword.length;
+  if (end < text.length && ALNUM.test(keyword.slice(-1)) && ALNUM.test(text[end])) return false;
+  return true;
+}
+
+// Python str.strip() also strips the C0 separators (\x1c-\x1f, incl. VIEW_SEP)
+// and \x85, which JS String.prototype.trim() does not. Mirrored so an excerpt
+// that ends flush against a view boundary reads the same in both engines.
+const PY_STRIP = /^[\s\x1c-\x1f\x85]+|[\s\x1c-\x1f\x85]+$/gu;
+
+// Port of engine.py _excerpt (v0.4.3): context window around a match, clamped
+// to the enrichment view that matched — windows used to bleed across the
+// plain/ROT13/reversed view boundary and splice decoded gibberish into
+// matched_text.
+function excerpt(normalized, kwStart, kwEnd) {
+  let start = Math.max(0, kwStart - 10);
+  let end = Math.min(normalized.length, kwEnd + 20);
+  // rfind(VIEW_SEP, start, kwStart) — guard kwStart===0, where JS lastIndexOf
+  // with a negative fromIndex would still probe index 0 (Python's range is empty).
+  if (kwStart > 0) {
+    const left = normalized.lastIndexOf(VIEW_SEP, kwStart - 1);
+    if (left !== -1 && left >= start) start = left + 1;
+  }
+  const right = normalized.indexOf(VIEW_SEP, kwEnd);   // find(VIEW_SEP, kwEnd, end)
+  if (right !== -1 && right < end) end = right;
+  return normalized.slice(start, end).replace(PY_STRIP, "");
+}
 
 function checkNegation(text, matchStart) {
   const windowStart = Math.max(0, matchStart - NEGATION_WINDOW);
@@ -179,6 +254,21 @@ function makeFinding(pattern, matchedText, negated, defensive = false) {
 }
 
 export function scan(text, channel = "message") {
+  // Unknown channels fail CLOSED (throw) instead of silently scanning against
+  // nothing and returning a clean allow — mirrors engine.py's ValueError. The
+  // caller (index.js) turns this into a 400; it must never become an "allow".
+  if (!VALID_CHANNELS.has(channel)) {
+    throw new Error(
+      `Unknown channel '${channel}'. Valid channels: ${[...VALID_CHANNELS].sort().join(", ")}`,
+    );
+  }
+  const aliasChannel = CHANNEL_ALIASES[channel] ?? channel;
+  // Port of engine.py `match_channels.isdisjoint(pattern["channel"])`.
+  const channelHit = (p) => {
+    const ch = p.channel || [];
+    return ch.includes(channel) || ch.includes(aliasChannel);
+  };
+
   // NOTE: Cloudflare freezes Date.now() during synchronous execution (timing-attack
   // defense), so a pure-CPU scan measures 0ms in production. We return null rather
   // than a fake number; the UI hides it. Real timing lives in CF's own metrics.
@@ -194,25 +284,33 @@ export function scan(text, channel = "message") {
   // normalized). Keyword-only patterns keep keyword-verdict behavior.
   const candidates = new Map();
   for (const [keyword, patterns] of keywordToPatterns) {
-    const idx = normalized.indexOf(keyword);
+    // v0.4.3 word boundary: take the first occurrence whose TRAILING edge is a
+    // real word end. Python's Aho-Corasick path (the reference the parity gates
+    // run against) yields every occurrence and skips the unbounded ones, so a
+    // keyword buried in a longer word earlier in the text must not shadow a
+    // genuine hit later — plain indexOf on occurrence #1 would do exactly that.
+    let idx = -1;
+    for (let at = normalized.indexOf(keyword); at !== -1; at = normalized.indexOf(keyword, at + 1)) {
+      if (wordBounded(normalized, at, keyword)) { idx = at; break; }
+    }
     if (idx === -1) continue;
     for (const pattern of patterns) {
-      if (!(pattern.channel || []).includes(channel)) continue;
+      if (!channelHit(pattern)) continue;
       if (seen.has(pattern.id) || candidates.has(pattern.id)) continue;
       if (regexBearingIds.has(pattern.id)) {
         candidates.set(pattern.id, pattern);
         continue;
       }
       seen.add(pattern.id);
-      const excerpt = normalized.slice(Math.max(0, idx - 10), Math.min(normalized.length, idx + keyword.length + 20));
+      const matched = excerpt(normalized, idx, idx + keyword.length);
       const negated = !pattern.negation_immune && checkNegation(normalized, idx);
-      findings.push(makeFinding(pattern, excerpt, negated));
+      findings.push(makeFinding(pattern, matched, negated));
     }
   }
 
   // Lane 2 — regexes on RAW text (same as engine.py step 3).
   for (const { pattern, compiled } of regexPatterns) {
-    if (!(pattern.channel || []).includes(channel)) continue;
+    if (!channelHit(pattern)) continue;
     if (seen.has(pattern.id)) continue;
     for (const entry of compiled) {
       const m = evalRegex(entry, text);

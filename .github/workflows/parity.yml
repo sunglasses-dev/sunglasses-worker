@@ -28,10 +28,17 @@ jobs:
           echo "reference engine pin: ${PIN}"
       - name: Install pinned scanner
         run: pip install "sunglasses @ git+https://github.com/sunglasses-dev/sunglasses.git@${SUNGLASSES_PIN}"
-      - name: Wide parity (1,525 case-channel pairs)
+      - name: Wide parity (1,555 case-channel pairs)
         env:
           SUNGLASSES_SRC: /nonexistent  # force the installed package, not a source tree
         run: python3 wide_parity.py
+      # wide_parity only drives 5 channels. The v0.4.3 channel work (aliases +
+      # fail-closed vocabulary) lives on the other 8, so it gets its own gate —
+      # without this, that port drifts silently.
+      - name: Channel parity (aliases + fail-closed vocabulary)
+        env:
+          SUNGLASSES_SRC: /nonexistent
+        run: python3 channel_parity.py
       # The engine pin tracks the release patterns.js was compiled from, but
       # the policy layer is newer than that release — its Python reference is
       # current main, so it gets its own install.

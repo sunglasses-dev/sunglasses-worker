@@ -79,6 +79,39 @@ def deverbose(src: str) -> str:
     return "".join(out)
 
 
+def dot_to_not_newline(src: str) -> str:
+    r"""Rewrite every UNESCAPED `.` outside a character class to `[^\n]`.
+
+    Python `.` == [^\n]; JS `.` == [^\n\r\u2028\u2029]. Spelling the class out
+    makes the JS conversion mean what the Python source means. Dots inside a
+    character class are already literal, and `\.` is already a literal dot —
+    both are left untouched.
+    """
+    out = []
+    i, n = 0, len(src)
+    in_class = False
+    while i < n:
+        c = src[i]
+        if c == "\\":                      # escape: copy the pair verbatim
+            out.append(src[i:i + 2]); i += 2; continue
+        if in_class:
+            if c == "]":
+                in_class = False
+            out.append(c); i += 1; continue
+        if c == "[":
+            in_class = True
+            out.append(c); i += 1
+            if i < n and src[i] == "^":      # `[^]]` / `[]]` — a `]` in either
+                out.append(src[i]); i += 1   # leading position is a LITERAL and
+            if i < n and src[i] == "]":      # must not close the class.
+                out.append(src[i]); i += 1
+            continue
+        if c == ".":
+            out.append(r"[^\n]"); i += 1; continue
+        out.append(c); i += 1
+    return "".join(out)
+
+
 def convert(py_regex: str):
     """Convert one Python regex to (js_source, js_flags). Raises ValueError on constructs
     we don't support."""
@@ -125,6 +158,17 @@ def convert(py_regex: str):
     # 6. Conditional references (?(id)yes|no) — no JS equivalent.
     if re.search(r"\(\?\(", src):
         raise ValueError("conditional group (?(...)...) not supported in JS")
+
+    # 7. `.` semantics. Python's dot excludes ONLY \n; JS's also excludes \r,
+    #    \u2028 and \u2029. A single carriage return inside a `.{0,N}` span was
+    #    therefore enough to split a match the pip scanner makes — found
+    #    2026-08-28 by parity_test on GLS-SC-017 ("requests.get ... \r ... prompt
+    #    ... apply"), which is exactly the CRLF shape a Windows README or an HTTP
+    #    response carries. Rewriting the dot to [^\n] gives JS the Python
+    #    semantics exactly. Skipped when the s/dotAll flag is set, where both
+    #    engines already mean "any character".
+    if "s" not in flags:
+        src = dot_to_not_newline(src)
 
     # Engine always scans case-insensitively (engine.py re.IGNORECASE).
     flags.add("i")
