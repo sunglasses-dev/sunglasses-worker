@@ -18,12 +18,12 @@ the enforcement, not just the promise.
 
 ## How it was built (and how to trust it)
 `compile_patterns.py` reads the **live scanner package** (`~/sunglasses-dev/glasses`,
-v0.4.9) and emits `src/patterns.js`. Nothing is hand-copied. Then four gates run:
+v0.5.2) and emits `src/patterns.js`. Nothing is hand-copied. Then four gates run:
 
-| Gate | What it proves | Result (measured 2026-08-28, scanner v0.4.9) |
+| Gate | What it proves | Result (measured 2026-09-01, scanner v0.5.2) |
 |---|---|---|
-| `compile_patterns.py` | every regex converts + compiles in V8 | **1407/1407 ported, 0 failed** |
-| `parity_test.py` | each converted regex matches the same strings as Python (generated positives + benign corpus) | **~820 regexes/run, 0 misses · 11,432 benign checks, 0 disagreements** |
+| `compile_patterns.py` | every regex converts + compiles in V8 | **1437/1437 ported, 0 failed** |
+| `parity_test.py` | each converted regex matches the same strings as Python (generated positives + benign corpus) | **820 regexes/run, 0 misses · 11,672 benign checks, 0 disagreements** |
 | `engine_parity.py` | end-to-end verdict parity on attack canaries, negation cases, clean files, the full benchmark + FP corpora | **136 cases, 0 verdict splits, 0 finding-set deltas** |
 | `policy_parity.py` | the repo-scan rollup ladder agrees py-vs-js | **14 cases, 0 mismatches** |
 | `wide_parity.py` | 311 corpus cases (harvested from the scanner's own test suite) × 5 channels | **1,555 pairs, 0 verdict splits, 0 finding-set deltas** |
