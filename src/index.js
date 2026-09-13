@@ -211,6 +211,12 @@ export default {
     if (path === "/about") {
       return json({
         what: "Hosted demo of the Sunglasses AI-agent input scanner",
+        // The scan page says which engine build it is talking to, and a preflight gate
+        // compares this to the site's published numbers. Both need the version here.
+        // Without it the demo sat on scanner v0.5.2 while the site said v0.5.7 and
+        // nothing could see the gap, because the only two places this string appeared
+        // were a scan response body and a footer nobody reads.
+        patterns_version: PATTERNS_VERSION,
         patterns: STATS.patterns,
         keywords: STATS.keywords,
         privacy: "Payloads are scanned in-memory and discarded. Nothing is stored, logged, or forwarded.",
