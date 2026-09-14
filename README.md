@@ -94,9 +94,14 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   all 1,112,064 scalars. Neither engine is wrong.
 
 - **HTML entities, NARROWED, and one regression found by review.** Numeric
-  references match Python including the form with no closing semicolon, with the
-  invalid codepoint tables extracted from the interpreter. The named set is still
-  the common subset rather than the full HTML5 one.
+  references match Python across the ordinary and invalid codepoint range,
+  including the form with no closing semicolon, with the invalid codepoint tables
+  extracted from the interpreter. ONE numeric case is still open and is not a
+  named-set problem: a reference of several hundred digits overflows and stays
+  encoded here where Python returns U+FFFD. This paragraph previously said the
+  numeric form matched Python outright, which was false for that input.
+
+  The named set is still the common subset rather than the full HTML5 one.
 
   The rewrite that added the numeric form BROKE the named one: the table is keyed
   without the terminating semicolon, so matching the stem and re-appending what
@@ -137,11 +142,17 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
 
 - **Whitespace classes, NARROWED 2026-09-14.** Enumerated in both directions:
   Python also matches U+001C to U+001F and U+0085, JavaScript also matches
-  U+FEFF. The compiled patterns and this port's own preprocessor use Python's
-  set. The rewrite then broke the any-character idiom, because splicing that set
-  into a class beside its own negation drops exactly the character the two
-  definitions disagree about; classes holding a shorthand and its negation are
-  left alone.
+  U+FEFF. The COMPILED PATTERNS use Python's set.
+
+  The preprocessor does NOT, and this sentence used to claim both. Measured on
+  edge trimming: Python strips U+001C to U+001F where `collapseWhitespace` leaves
+  them, and `collapseWhitespace` strips U+FEFF where Python leaves it. So the
+  normalized view the two engines match against can differ at the edges of a
+  document even where the patterns agree.
+
+  The rewrite then broke the any-character idiom, because splicing that set into
+  a class beside its own negation drops exactly the character the two definitions
+  disagree about; classes holding a shorthand and its negation are left alone.
 
 - **Cost on pathological documents, OPEN.** One corpus document takes 8.2 s here
   against 4.4 s in the pip scanner, about 1.8x, both over any reasonable bound.

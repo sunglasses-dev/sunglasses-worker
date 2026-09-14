@@ -12,7 +12,7 @@
 export const LIMITATIONS = [
   "Scope. Four rule-identity differences remain across the whole 13,028 pair corpus and all four are the ASCII word boundary case below. That is not output equality. 36 pairs still differ in the excerpt they return, and the classes listed here are the ones that have been observed rather than a proof that no other exists",
   "ASCII word boundaries. 962 of 1,557 rules use a word boundary in a core or a guard, so a match can differ where a non-ASCII letter sits next to one. This is the reach of the difference rather than the count it changes, and it is where all four known corpus differences are",
-  "Word class membership. The emitted class admits 4,658 code points Python's own does not, of which 4,657 are unassigned in the Python this was measured against and one, U+0345, is assigned. Under case-insensitive matching the positive class matches it where Python does not, and the NEGATED class fails to match it where Python does, so this can miss a finding as well as add one. Saying it can only over-match would be wrong. Reach is 380 rules",
+  "Word class membership. The emitted class admits 4,658 code points Python's own does not, of which 4,657 are unassigned in the Python this was measured against and one, U+0345, is assigned. Under case-insensitive matching the positive class matches it where Python does not, and the NEGATED class fails to match it where Python does, so this can miss a finding as well as add one. Saying it can only over-match would be wrong. Reach is 386 rules across 390 compiled entries, being 380 carrier rules in 381 entries plus 6 mechanism rules in 9 entries",
   "ASCII letter ranges. A literal A to Z or a to z range does not carry Python's case folding for U+0130 and U+0131, which can turn a block into an allow. Enumerating individual letters does not close a range. Reach is 133 rules",
   "Decimal digit shorthands. The digit class here misses 750 code points Python treats as digits, which can turn a block into an allow. Reach is 37 rules",
   "Unicode version skew. 28 case-fold mappings differ between this runtime and the pip scanner's Python, all of them unassigned in the older version. Folding feeds anchors and prefilter presence checks, so the skew is not confined to matching. Neither engine is wrong, they were built against different Unicode versions",
@@ -121,8 +121,14 @@ const INVALID_CODEPOINTS = new Set([1, 2, 3, 4, 5, 6, 7, 8, 11, 14, 15, 16, 17, 
 // and the decision order below are Python's `html.unescape`, transcribed:
 //   &(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)
 // Named references still resolve against the subset this port carries, and that
-// subset remains a documented delta. What is no longer a delta is the numeric
-// form, its optional semicolon, and its invalid code point handling.
+// subset remains a documented delta. The numeric form, its optional semicolon and
+// its invalid code point handling agree with Python across the ordinary range.
+//
+// ONE NUMERIC DELTA REMAINS and it is not closed. A reference of several hundred
+// digits overflows and is left encoded here where Python returns U+FFFD.
+// `Number.isFinite` returns the original reference below rather than a
+// replacement character. Saying the numeric form is no longer a delta, which is
+// what this comment used to say, was false for that input.
 export function decodeHtmlEntities(text) {
   if (!text.includes("&")) return text;
   return text.replace(/&(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)/g, (m, body) => {

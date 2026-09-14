@@ -86,7 +86,7 @@ export default {
 
     if (path === "/scan" && request.method === "POST") {
       if (await rateLimited(request, env)) {
-        return json({ error: "Rate limit hit — the demo allows 30 scans/minute. The pip scanner has no limits: pip install sunglasses" }, 429);
+        return json({ error: "Rate limit hit. The demo allows 30 scans per minute. The pip scanner has no rate limit, and its default scan length limit is 1 MiB and configurable: pip install sunglasses" }, 429);
       }
       let body;
       try {
@@ -102,7 +102,7 @@ export default {
         return json({ error: "Field \"text\" (non-empty string) is required." }, 400);
       }
       if (new TextEncoder().encode(text).length > MAX_BYTES) {
-        return json({ error: `Demo cap is ${MAX_BYTES / 1000}KB per scan. The pip scanner has no cap: pip install sunglasses` }, 413);
+        return json({ error: `Demo request cap is ${MAX_BYTES / 1000}KB per scan. The pip scanner has no request cap, and its default scan length limit is 1 MiB and configurable: pip install sunglasses` }, 413);
       }
       const channel = body.channel === undefined || body.channel === null || body.channel === ""
         ? "message"
@@ -122,7 +122,7 @@ export default {
 
     if (path === "/scan-github" && request.method === "POST") {
       if (await rateLimited(request, env)) {
-        return json({ error: "Rate limit hit — the demo allows 30 scans/minute. The pip scanner has no limits: pip install sunglasses" }, 429);
+        return json({ error: "Rate limit hit. The demo allows 30 scans per minute. The pip scanner has no rate limit, and its default scan length limit is 1 MiB and configurable: pip install sunglasses" }, 429);
       }
       let body;
       try {
@@ -311,7 +311,7 @@ button:disabled{opacity:.5;cursor:wait}
   <div id="out"></div>
 
   <p class="privacy">
-    In-memory scan, discarded on response. No storage, no logging of payloads, no cookies, no telemetry. Demo cap 100KB — the real thing has none: <span class="mono">pip install sunglasses</span> · patterns v${PATTERNS_VERSION} · <a href="/about">engine notes</a> · <a href="https://sunglasses.dev">sunglasses.dev</a> · <a href="https://github.com/sunglasses-dev/sunglasses">GitHub</a>
+    In-memory scan, discarded on response. No storage, no logging of payloads, no cookies, no telemetry. Demo request cap 100KB, and the pip scanner's default scan length limit is 1 MiB and configurable: <span class="mono">pip install sunglasses</span> · patterns v${PATTERNS_VERSION} · <a href="/about">engine notes</a> · <a href="https://sunglasses.dev">sunglasses.dev</a> · <a href="https://github.com/sunglasses-dev/sunglasses">GitHub</a>
   </p>
 </div>
 <script>
