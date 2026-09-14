@@ -46,6 +46,15 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   and 0 finding-set deltas over 1,555 case-channel pairs; before the port it
   reported 2 deltas and still printed PASS, which is fixed separately.
 
+- **Slow input class on the live demo, OPEN.** The bounded search that main added
+  for the 27 KB long word document in scanner PR #157 is not in this port, and it
+  is not in the worker running at sunglasses.dev today either, which serves
+  patterns 0.5.2. So a document of that shape is slow on the demo right now. What
+  bounds it is the Workers CPU limit and the 30 scans per minute per IP cap,
+  nothing in the engine. The pip scanner on main does not have this problem.
+  Recorded before the fix rather than after it, because the demo is public while
+  the fix is not written.
+
 - **Unicode word boundaries.** JS `\w`/`\b` are ASCII-only; Python's are unicode-aware.
   Homoglyph normalization runs first and closes most of the gap, but a payload using
   unicode letters *inside* a `\w` span can differ. Surfaced in `/about`.
