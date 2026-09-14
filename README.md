@@ -59,14 +59,26 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   cap, nothing in the engine.
 
 - **Word boundaries, OPEN and bounded.** `\w` is now Python's own class,
-  `[\p{L}\p{N}_]`, chosen by enumerating every Unicode scalar: it contains every
-  code point Python's `\w` does. `\b` is still ASCII. The faithful rewrite is a
-  pair of lookarounds over that class, and substituting it for every boundary in
-  1,546 patterns ran V8's regex compiler out of heap before a single document
-  was scanned, so the constraint is deliberate and the reason is in
-  `compile_patterns.py`. 924 of the 1,557 shipped patterns contain a boundary,
-  which is the number of rules this can reach rather than the number it changes.
-  Two of ASTRA's 66 counterexamples land on it, both starting a word on U+0130.
+  `[\p{L}\p{N}_]`, chosen by enumerating every Unicode scalar. `\b` is still
+  ASCII: the faithful rewrite is a pair of lookarounds over that class, and
+  substituting it for every boundary in 1,546 patterns ran V8's regex compiler
+  out of heap before a single document was scanned. 924 of the 1,557 shipped
+  patterns contain a boundary, which is the number of rules this can reach
+  rather than the number it changes.
+
+- **One word-class over-match, OPEN and exactly one character.** Under the real
+  flags the emitted class admits 4,658 code points Python's `\w` does not, and
+  4,657 of those are Unicode version skew. The remaining one is U+0345, an
+  already assigned combining character that case-insensitive matching folds into
+  the class. Expressing the exclusion needs the `v` flag's set subtraction,
+  which 862 of 1,574 compiled entries do not currently accept, so this is
+  constrained and disclosed rather than repaired. It can only over-match.
+
+- **UTF-16 offsets, OPEN.** The `u` flag makes matching step by code point; it
+  does not change JavaScript string lengths or indices. Windowed matching,
+  anchored windows, negation ranges, corroboration and excerpts still measure in
+  UTF-16 units where Python measures in code points, so their boundaries can
+  differ around astral characters.
 
 - **Unicode version skew, OPEN and not closable here.** 28 case-fold mappings
   and 4,657 word characters differ between this runtime and the pip scanner's
@@ -85,10 +97,15 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   six API siblings, from one character. Our own gates did not catch it; his
   corpus did.
 
-- **Percent decoding, CLOSED 2026-09-14.** The port decoded each contiguous
-  escape run and, when a run held invalid UTF-8, left the whole run encoded, so
-  one bad byte hid every valid encoded word after it. It collects bytes and does
-  one replacing decode now, which is what Python's `unquote` does.
+- **Percent decoding, CLOSED 2026-09-14 after two rounds.** The port decoded
+  each contiguous escape run and, when a run held invalid UTF-8, left the whole
+  run encoded, so one bad byte hid every valid encoded word after it. It collects
+  bytes and does one replacing decode now, which is what Python's `unquote` does.
+
+  The first version of that repair walked UTF-16 units, so a literal astral
+  character beside an escape was encoded as two lone surrogates and came back as
+  two replacement characters, and `TextDecoder` silently ate a decoded leading
+  BOM. Both were ASTRA's neutral controls, both now match Python exactly.
 
 - **Case equivalence, CLOSED 2026-09-14.** Enumerated across every ASCII letter,
   digit and underscore against all 1,112,064 scalars: the entire difference was

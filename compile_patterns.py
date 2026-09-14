@@ -309,7 +309,14 @@ def _widen_dotless_i(src: str) -> str:
 # So the shorthand is replaced by Python's actual set. Inside a character class
 # the contents are spliced rather than nested, because `u` mode has no nested
 # classes.
-PY_WHITESPACE = "\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028-\u2029\u202f\u205f\u3000"
+# ESCAPE TEXT, not the characters themselves. Built with a doubled backslash
+# this string held REAL control characters, so the compiled JavaScript
+# carried a literal tab and a literal U+2028 inside a character class. It
+# worked and it was unreadable, and it is also what made the emitted classes
+# reject the `v` flag, whose reserved double punctuators collide with an
+# adjacent literal hyphen.
+PY_WHITESPACE = ("\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680"
+                 "\\u2000-\\u200a\\u2028-\\u2029\\u202f\\u205f\\u3000")
 
 
 def _class_spans(src: str):

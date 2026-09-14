@@ -10,7 +10,8 @@ export const LIMITATIONS = [
   // is Unicode aware here now, so only the boundary is left, and 924 of the
   // 1,557 shipped patterns contain one. That number is measured, and it is the
   // count of rules the difference can reach rather than the count it changes.
-  "JS word boundaries are ASCII; 924 of 1,557 patterns use one, so a match can differ where a non-ASCII letter sits next to a boundary. Python's \\w equivalent is ported and is unicode aware",
+  "JS word boundaries are ASCII; 924 of 1,557 patterns use one, so a match can differ where a non-ASCII letter sits next to a boundary. Python's \\w equivalent is ported and is unicode aware, with one over-match: under case-insensitive matching the emitted class also admits U+0345, a combining character Python's \\w excludes",
+  "Regex offsets are UTF-16 units here and code points in Python, so windows, negation ranges and excerpts can differ around astral characters even though matching itself is code-point aware",
   "The scanner 0.5.8 bounded-search protection for long single-word documents is ported; a 27,000 character document that previously exhausted the CPU limit now completes in under a fifth of a second. 30 scans per minute per IP still applies",
   "Unicode version skew between this runtime and the pip scanner's Python: 28 case-fold mappings and 4,657 word characters differ, all of them assigned in the newer Unicode. Neither engine is wrong; they were built against different versions",
 ];
@@ -168,12 +169,22 @@ export function decodeUrlEncoding(text) {
       i += 3;
       continue;
     }
-    // Literal text keeps its own bytes, so a round trip cannot alter it.
-    for (const b of encoder.encode(text[i])) bytes.push(b);
-    i += 1;
+    // BY CODE POINT, not by UTF-16 unit. `text[i]` is one unit, so a literal
+    // astral character was encoded as two lone surrogates and came back as two
+    // replacement characters: ASTRA's neutral control turns one emoji beside an
+    // escape into rubbish, where Python leaves it untouched. `codePointAt` plus
+    // the surrogate-aware step keeps the pair together.
+    const point = text.codePointAt(i);
+    const literal = String.fromCodePoint(point);
+    for (const b of encoder.encode(literal)) bytes.push(b);
+    i += literal.length;
   }
   // `fatal: false` is the replacement behaviour of Python's errors="replace".
-  return new TextDecoder("utf-8", { fatal: false }).decode(new Uint8Array(bytes));
+  // `ignoreBOM: true` because TextDecoder otherwise EATS a leading U+FEFF, and
+  // Python's unquote does not: his encoded-BOM control decodes to a BOM
+  // followed by the text, and this returned the text alone.
+  return new TextDecoder("utf-8", { fatal: false, ignoreBOM: true })
+    .decode(new Uint8Array(bytes));
 }
 
 export function decodeHexEscapes(text) {
