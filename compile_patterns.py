@@ -17,7 +17,13 @@ import subprocess
 import sys
 import tempfile
 
-SCANNER = os.path.expanduser("~/sunglasses-dev/glasses")
+# The scanner checkout to compile from. Overridable so a release build can bind
+# to a PRIVATE checkout of one resolved commit instead of the shared working
+# tree. The shared tree is whatever a teammate last checked out, and a build that
+# merely verified it a moment ago can still compile from something else: the
+# verification and the import are two separate reads of a path someone else owns.
+SCANNER = os.path.abspath(os.environ.get(
+    "SG_SCANNER_ROOT", os.path.expanduser("~/sunglasses-dev/glasses")))
 sys.path.insert(0, SCANNER)
 import sunglasses  # noqa: E402
 from sunglasses import __version__ as SCANNER_VERSION  # noqa: E402

@@ -58,10 +58,15 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   bounds it there is the Workers CPU limit and the 30 scans per minute per IP
   cap, nothing in the engine.
 
-- **Word boundaries, OPEN and bounded.** `\w` is now Python's own class,
-  `[\p{L}\p{N}_]`, chosen by enumerating every Unicode scalar. `\b` is still
-  ASCII: the faithful rewrite is a pair of lookarounds over that class, and
-  substituting it for every boundary in 1,546 patterns ran V8's regex compiler
+- **Word boundaries, OPEN and bounded.** `\w` is now written as
+  `[\p{L}\p{N}_]`, chosen by enumerating every Unicode scalar. That is Python's
+  class as a FORM and not as a membership: under the real flags it admits 4,658
+  code points Python's does not, and the difference runs in both directions on
+  U+0345. The bullet below states it. This sentence used to say `\w` simply was
+  Python's own class, which asserted an equality the enumeration disproves.
+
+  `\b` is still ASCII: the faithful rewrite is a pair of lookarounds over that
+  class, and substituting it for every boundary in 1,546 patterns ran V8's regex compiler
   out of heap before a single document was scanned. 962 of the 1,557 shipped
   rules contain a boundary in a core or a guard, which is the number of rules
   this can reach rather than the number it changes. The earlier 924 counted
@@ -145,8 +150,10 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   U+FEFF. The COMPILED PATTERNS use Python's set.
 
   The preprocessor does NOT, and this sentence used to claim both. Measured on
-  edge trimming: Python strips U+001C to U+001F where `collapseWhitespace` leaves
-  them, and `collapseWhitespace` strips U+FEFF where Python leaves it. So the
+  edge trimming, all six characters disagree: Python strips U+001C, U+001D,
+  U+001E, U+001F and U+0085 where `collapseWhitespace` leaves them, and
+  `collapseWhitespace` strips U+FEFF where Python leaves it. Leading and trailing
+  both, interior neither. So the
   normalized view the two engines match against can differ at the edges of a
   document even where the patterns agree.
 

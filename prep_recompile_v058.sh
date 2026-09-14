@@ -44,6 +44,7 @@ EXPECTED_PATTERNS_SHA256="bb79c277ac30e56eb19bd519e32264ce2ccf36e3c48cba77919168
 # reviewed": a tag can be cut on the wrong commit, moved, or recreated, and the
 # name would look identical either way. If the tag resolves elsewhere this
 # refuses rather than compiling from whatever it found.
+EXPECTED_VERSION="0.5.8"
 EXPECTED_TAG_COMMIT="b7e33c2393f700981125dc3c4cfad0ef36e17243"
 
 die() { printf '\n⛔ REFUSED: %s\n' "$1" >&2; exit 1; }
@@ -66,20 +67,31 @@ else
 fi
 ok "${TAG} -> ${TAG_SHA}"
 
-echo "── 2/6 the SHARED checkout is at the tag and clean ──"
-# This tree belongs to whoever is mid-ship. This script never moves it: it says
-# what it needs and stops, because resetting a peer's checkout is how work is lost.
-HEAD_SHA="$(git -C "$SCANNER" rev-parse HEAD)"
-[ "$HEAD_SHA" = "$TAG_SHA" ] \
-  || die "$SCANNER is at ${HEAD_SHA:0:8}, not ${TAG} (${TAG_SHA:0:8}).
-     The compiler reads this exact path and records the ref it read.
-     Whoever owns the tree right now should run:  git -C $SCANNER checkout ${TAG}"
-[ -z "$(git -C "$SCANNER" status --porcelain)" ] \
-  || die "$SCANNER has uncommitted changes. A build whose source cannot be named is not a build anyone can check."
-ok "checkout at ${TAG}, clean"
+echo "── 2/6 a PRIVATE checkout of the resolved commit ──"
+# THE SHARED TREE IS NOT A SOURCE THIS CAN TRUST, even after checking it.
+# Verifying that ~/sunglasses-dev/glasses sits at the tag and then importing
+# from it later are two separate reads of a path a teammate owns. Between them
+# they can check out another branch mid-ship, and the build would compile from
+# whatever was there while this script still printed the sha it verified. That
+# is a time-of-check to time-of-use hole and ASTRA demonstrated it.
+#
+# So nothing here reads the shared tree. A private worktree is created at the
+# resolved commit, both compilers are bound to it through SG_SCANNER_ROOT, and
+# it is removed on exit. Nobody else can move it.
+PRIVATE="$(mktemp -d /private/tmp/sg-recompile-XXXXXX)"
+cleanup() { git -C "$SCANNER" worktree remove --force "$PRIVATE" >/dev/null 2>&1 || true; rm -rf "$PRIVATE"; }
+trap cleanup EXIT
+git -C "$SCANNER" worktree add --detach "$PRIVATE" "$TAG_SHA" >/dev/null 2>&1 \
+  || die "could not create a private checkout of ${TAG_SHA} from ${SCANNER}"
+PRIVATE_SHA="$(git -C "$PRIVATE" rev-parse HEAD)"
+[ "$PRIVATE_SHA" = "$TAG_SHA" ] \
+  || die "the private checkout is at ${PRIVATE_SHA}, not ${TAG_SHA}"
+[ -z "$(git -C "$PRIVATE" status --porcelain)" ] \
+  || die "the private checkout is dirty, which should be impossible and means something else is writing to it"
+ok "private checkout at ${TAG_SHA:0:8}, nobody else can move it"
 
 echo "── 3/6 the tagged rule source is the one this was built against ──"
-ACTUAL="$(git -C "$SCANNER" show "${TAG}:sunglasses/patterns.py" | shasum -a 256 | cut -d' ' -f1)"
+ACTUAL="$(shasum -a 256 "${PRIVATE}/sunglasses/patterns.py" | cut -d' ' -f1)"
 [ "$ACTUAL" = "$EXPECTED_PATTERNS_SHA256" ] \
   || die "patterns.py at ${TAG} is sha256 ${ACTUAL}
      expected ${EXPECTED_PATTERNS_SHA256}
@@ -89,9 +101,22 @@ ok "patterns.py sha256 matches the pin"
 echo "── 4/6 recompile ──"
 cd "$WORKER"
 cp src/patterns.js /tmp/patterns.before.js
-python3 compile_patterns.py
-python3 compile_mechanisms.py
-ok "compiled"
+SG_SCANNER_ROOT="$PRIVATE" python3 compile_patterns.py
+SG_SCANNER_ROOT="$PRIVATE" python3 compile_mechanisms.py
+ok "compiled from the private checkout"
+
+# WHAT WAS EMITTED, not what was intended. The stamp is read back out of the
+# artifact, because every check above this line is about inputs and a build can
+# still emit something else.
+EMIT_V="$(grep -o 'PATTERNS_VERSION = "[^"]*"' src/patterns.js | cut -d'"' -f2)"
+EMIT_C="$(grep -o 'COMPILED_FROM = "[^"]*"' src/patterns.js | cut -d'"' -f2)"
+[ "$EMIT_V" = "$EXPECTED_VERSION" ] \
+  || die "the build emitted PATTERNS_VERSION ${EMIT_V}, expected ${EXPECTED_VERSION}"
+case "$TAG_SHA" in
+  "${EMIT_C}"*) ;;
+  *) die "the build emitted COMPILED_FROM ${EMIT_C}, which is not a prefix of ${TAG_SHA}" ;;
+esac
+ok "emitted stamp is ${EMIT_V} from ${EMIT_C}"
 
 echo "── 5/6 the RULES did not move, only the stamp ──"
 # Compared semantically, not as text. PATTERNS is one enormous line, so a text
@@ -107,10 +132,23 @@ ok "rule set identical; stamp and anchor order moved"
 grep -o 'PATTERNS_VERSION = "[^"]*"\|COMPILED_FROM = "[^"]*"' src/patterns.js | sed 's/^/     /'
 
 echo "── 6/6 gates ──"
-python3 disclosure_gate.py
-python3 policy_parity.py  >/dev/null && ok "policy parity"
-python3 engine_parity.py  >/dev/null && ok "engine parity"
-python3 channel_parity.py >/dev/null && ok "channel parity"
+# EACH GATE CHECKED EXPLICITLY. These were written as `cmd && ok "..."`, which
+# put the gate on the LEFT of `&&`. `set -e` deliberately ignores a failure
+# there, because that position is a tested context, so all three could exit
+# non-zero and the script printed RECOMPILE READY anyway. ASTRA forced exit 7 on
+# all three and got a green run; reproduced here before it was fixed. A gate
+# whose failure cannot stop the thing it gates is not a gate.
+gate() {
+  local name="$1"; shift
+  if ! "$@" >/dev/null 2>&1; then
+    die "${name} FAILED. Re-run it directly to see why:  $*"
+  fi
+  ok "$name"
+}
+gate "disclosure gate" python3 disclosure_gate.py
+gate "policy parity"   python3 policy_parity.py
+gate "engine parity"   python3 engine_parity.py
+gate "channel parity"  python3 channel_parity.py
 
 cat <<'NEXT'
 
