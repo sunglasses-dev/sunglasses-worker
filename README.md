@@ -4,7 +4,10 @@ Zero-install demo of the Sunglasses AI-agent input scanner, running on Cloudflar
 The **pip package stays the product of record**; this is a try-before-install front door
 (and the "core infra on Workers" that Workers Launchpad eligibility asks for).
 
-**Status: demo build, fully parity-tested against the pip scanner (gates below). Hosted demo: https://sunglasses.dev/api/ (same-origin mount of this Worker; `/scan` is Turnstile-gated). `pip install sunglasses` remains the product of record.**
+**Status: demo build. Differentially tested against the pip scanner by the gates
+below, which is not the same as parity: the deltas section lists what is still
+different and why, and ASTRA's independent review of 2026-09-13 found four of
+them that these gates did not. Hosted demo: https://sunglasses.dev/api/ (same-origin mount of this Worker; `/scan` is Turnstile-gated). `pip install sunglasses` remains the product of record.**
 
 ## What it is
 - `GET /` — paste-and-scan page (dark kit, sample chips, no tracking)
@@ -46,23 +49,56 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   and 0 finding-set deltas over 1,555 case-channel pairs; before the port it
   reported 2 deltas and still printed PASS, which is fixed separately.
 
-- **Slow input class on the live demo, OPEN.** The bounded search that main added
-  for the 27 KB long word document in scanner PR #157 is not in this port, and it
-  is not in the worker running at sunglasses.dev today either, which serves
-  patterns 0.5.2. So a document of that shape is slow on the demo right now. What
-  bounds it is the Workers CPU limit and the 30 scans per minute per IP cap,
-  nothing in the engine. The pip scanner on main does not have this problem.
-  Recorded before the fix rather than after it, because the demo is public while
-  the fix is not written.
+- **Slow input class on the live demo, OPEN on the deployed worker only.** The
+  bounded search that main added for the 27 KB long word document in scanner PR
+  #157 is now ported here, and that document completes in 0.107 s on message and
+  0.183 s on file with the pip scanner's decision preserved. It is NOT in the
+  worker running at sunglasses.dev, which serves patterns 0.5.2, so the public
+  demo still has that slow input class until this branch is deployed. What
+  bounds it there is the Workers CPU limit and the 30 scans per minute per IP
+  cap, nothing in the engine.
 
-- **Unicode word boundaries.** JS `\w`/`\b` are ASCII-only; Python's are unicode-aware.
-  Homoglyph normalization runs first and closes most of the gap, but a payload using
-  unicode letters *inside* a `\w` span can differ. Surfaced in `/about`.
-- **HTML entities.** Python decodes the full HTML5 named-entity set; we decode numeric
-  entities + the ~30 named ones that matter for injection. Numeric is what attacks use.
+- **Word boundaries, OPEN and bounded.** `\w` is now Python's own class,
+  `[\p{L}\p{N}_]`, chosen by enumerating every Unicode scalar: it contains every
+  code point Python's `\w` does. `\b` is still ASCII. The faithful rewrite is a
+  pair of lookarounds over that class, and substituting it for every boundary in
+  1,546 patterns ran V8's regex compiler out of heap before a single document
+  was scanned, so the constraint is deliberate and the reason is in
+  `compile_patterns.py`. 924 of the 1,557 shipped patterns contain a boundary,
+  which is the number of rules this can reach rather than the number it changes.
+  Two of ASTRA's 66 counterexamples land on it, both starting a word on U+0130.
+
+- **Unicode version skew, OPEN and not closable here.** 28 case-fold mappings
+  and 4,657 word characters differ between this runtime and the pip scanner's
+  Python, every one of them assigned in the newer Unicode. Measured by sweeping
+  all 1,112,064 scalars. Neither engine is wrong.
+
+- **HTML entities, NARROWED.** Numeric references now match Python exactly,
+  including the form with no closing semicolon and Python's invalid codepoint
+  tables, which were extracted from the interpreter rather than retyped. The
+  named set is still the common subset rather than the full HTML5 one.
+
+- **Percent decoding, CLOSED 2026-09-14.** The port decoded each contiguous
+  escape run and, when a run held invalid UTF-8, left the whole run encoded, so
+  one bad byte hid every valid encoded word after it. It collects bytes and does
+  one replacing decode now, which is what Python's `unquote` does.
+
+- **Case equivalence, CLOSED 2026-09-14.** Enumerated across every ASCII letter,
+  digit and underscore against all 1,112,064 scalars: the entire difference was
+  `i` also matching U+0130 and U+0131. The compiler widens a literal `i` to that
+  class and the regexes carry the `u` flag, which also gives code point stepping
+  rather than UTF-16 units.
+
+- **Whitespace classes, CLOSED 2026-09-14.** Enumerated in both directions:
+  Python also matches U+001C to U+001F and U+0085, JavaScript also matches
+  U+FEFF. The compiled patterns and this port's own preprocessor both use
+  Python's set now.
+
 - **`str.isprintable()`** is approximated for base64-segment screening.
-- **100KB request cap** (Workers CPU guard). The pip scanner has no cap.
-- **Keyword lane** iterates keywords (7,024 `indexOf` calls); the pip scanner uses an
+- **100KB request cap** (Workers CPU guard). The pip scanner's own default is
+  `MAX_SCAN_BYTES = 1024 * 1024`, applied to the input's length, so "no cap" was
+  wrong. It is a different and larger cap, and it is configurable.
+- **Keyword lane** iterates keywords (7,098 `indexOf` calls, 6,675 distinct); the pip scanner uses an
   Aho-Corasick automaton when `pyahocorasick` is installed. Same results, different speed
   curve. If p50 latency ever matters, port the automaton.
 - **`.` and carriage returns — CLOSED 2026-08-28.** JS `.` excludes `\r`, Python's excludes

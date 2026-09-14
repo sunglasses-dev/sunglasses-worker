@@ -3,9 +3,16 @@
 // in LIMITATIONS (exported for the /about payload).
 
 export const LIMITATIONS = [
-  "HTML entity decoding covers numeric + common named entities (Python decodes the full HTML5 named set)",
+  "HTML named entity decoding covers the common set; Python decodes the full HTML5 named set. Numeric references, with or without the closing semicolon, now match Python exactly",
   "Python str.isprintable() is approximated for base64 segment screening",
-  "JS \\w and \\b are ASCII-only; Python's match unicode letters (the pip scanner also normalizes homoglyphs first, which closes most of that gap)",
+  // ONE LINE, and it says the size of the thing. The previous wording paired
+  // `\w` with `\b` and called the homoglyph pass a near closure of both. `\w`
+  // is Unicode aware here now, so only the boundary is left, and 924 of the
+  // 1,557 shipped patterns contain one. That number is measured, and it is the
+  // count of rules the difference can reach rather than the count it changes.
+  "JS word boundaries are ASCII; 924 of 1,557 patterns use one, so a match can differ where a non-ASCII letter sits next to a boundary. Python's \\w equivalent is ported and is unicode aware",
+  "The scanner 0.5.8 bounded-search protection for long single-word documents is ported; a 27,000 character document that previously exhausted the CPU limit now completes in under a fifth of a second. 30 scans per minute per IP still applies",
+  "Unicode version skew between this runtime and the pip scanner's Python: 28 case-fold mappings and 4,657 word characters differ, all of them assigned in the newer Unicode. Neither engine is wrong; they were built against different versions",
 ];
 
 const HOMOGLYPHS = {
