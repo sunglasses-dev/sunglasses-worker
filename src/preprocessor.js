@@ -3,14 +3,20 @@
 // in LIMITATIONS (exported for the /about payload).
 
 export const LIMITATIONS = [
-  "HTML named entity decoding covers the common set; Python decodes the full HTML5 named set. Numeric references, with or without the closing semicolon, now match Python exactly",
+  "HTML named entity decoding covers the common set; Python decodes the full HTML5 named set. Numeric references agree on the ordinary and invalid-codepoint range including an omitted semicolon, with one known difference. A reference of several hundred digits stays encoded here and becomes U+FFFD in Python",
   "Python str.isprintable() is approximated for base64 segment screening",
   // ONE LINE, and it says the size of the thing. The previous wording paired
   // `\w` with `\b` and called the homoglyph pass a near closure of both. `\w`
-  // is Unicode aware here now, so only the boundary is left, and 924 of the
-  // 1,557 shipped patterns contain one. That number is measured, and it is the
-  // count of rules the difference can reach rather than the count it changes.
-  "JS word boundaries are ASCII; 924 of 1,557 patterns use one, so a match can differ where a non-ASCII letter sits next to a boundary. Python's \\w equivalent is ported and is unicode aware, with one over-match: under case-insensitive matching the emitted class also admits U+0345, a combining character Python's \\w excludes",
+  // is Unicode aware here now, so only the boundary is left.
+  //
+  // 962, NOT 924. The earlier number counted each rule's CORE regex source and
+  // never walked the `guards` array that `compile_patterns.py` splits a
+  // lookahead-led or caret-led predicate into. 38 rules carry their boundary
+  // only inside a guard, and guards execute like any other matcher. 913 cores
+  // plus 11 mechanisms is exactly the 924 that was advertised, which is how the
+  // undercount was traced. 951 cores-or-guards plus 11 mechanisms is 962.
+  // Understating a limitation is the wrong direction for a disclosure.
+  "JS word boundaries are ASCII; 962 of 1,557 rules use one in a core or a guard, so a match can differ where a non-ASCII letter sits next to a boundary. Python's \\w equivalent is ported and is unicode aware, with one over-match: under case-insensitive matching the emitted class also admits U+0345, a combining character Python's \\w excludes",
   "Regex offsets are UTF-16 units here and code points in Python, so windows, negation ranges and excerpts can differ around astral characters even though matching itself is code-point aware",
   "The scanner 0.5.8 bounded-search protection for long single-word documents is ported; a 27,000 character document that previously exhausted the CPU limit now completes in under a fifth of a second. 30 scans per minute per IP still applies",
   "Unicode version skew between this runtime and the pip scanner's Python: 28 case-fold mappings and 4,657 word characters differ, all of them assigned in the newer Unicode. Neither engine is wrong; they were built against different versions",

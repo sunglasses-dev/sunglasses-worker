@@ -62,9 +62,11 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   `[\p{L}\p{N}_]`, chosen by enumerating every Unicode scalar. `\b` is still
   ASCII: the faithful rewrite is a pair of lookarounds over that class, and
   substituting it for every boundary in 1,546 patterns ran V8's regex compiler
-  out of heap before a single document was scanned. 924 of the 1,557 shipped
-  patterns contain a boundary, which is the number of rules this can reach
-  rather than the number it changes.
+  out of heap before a single document was scanned. 962 of the 1,557 shipped
+  rules contain a boundary in a core or a guard, which is the number of rules
+  this can reach rather than the number it changes. The earlier 924 counted
+  core regex sources only and missed 38 rules whose boundary sits inside a
+  split-out guard, and guards execute like any other matcher.
 
 - **One word-class over-match, OPEN and exactly one character.** Under the real
   flags the emitted class admits 4,658 code points Python's `\w` does not, and
