@@ -78,6 +78,17 @@ export function decodeLeetspeak(text) {
   return out;
 }
 
+// Python's whitespace set, which is not JavaScript's. Python also matches the
+// four ASCII separators U+001C to U+001F and U+0085 NEXT LINE; JavaScript also
+// matches U+FEFF, which Python does not. The compiled patterns are rewritten to
+// this set by the compiler, and THIS FILE'S OWN regexes need it just as much:
+// `stripDelimiterPadding` splits on runs of whitespace, so a gap made of U+001C
+// separated two words in Python and joined them here, and ASTRA's `gap_U1C_*`
+// fixtures lost GLS-PI-017-API on exactly that.
+const PY_WS = "[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028-\u2029\u202f\u205f\u3000]";
+const PY_WS_RUN = new RegExp("(" + PY_WS + "{2,})");
+const PY_WS_ONLY = new RegExp("^" + PY_WS + "+$");
+
 export function collapseWhitespace(text) {
   return text.replace(/[\t\r\x0b\x0c]+/g, " ").replace(/ {2,}/g, " ").trim();
 }
@@ -185,10 +196,10 @@ export function stripDelimiterPadding(text) {
     /\b([a-zA-Z])[.\-_]([a-zA-Z])(?:[.\-_][a-zA-Z])+\b/g,
     (m) => m.replace(/[.\-_]/g, ""),
   );
-  const parts = text.split(/(\s{2,})/);
+  const parts = text.split(PY_WS_RUN);
   const out = [];
   for (const part of parts) {
-    if (/^\s+$/.test(part) && part.length >= 2) {
+    if (PY_WS_ONLY.test(part) && part.length >= 2) {
       out.push(" ");
     } else {
       out.push(part.replace(/(?<!\w)(?:[a-zA-Z] ){2,}[a-zA-Z](?!\w)/g, (m) => m.replace(/ /g, "")));

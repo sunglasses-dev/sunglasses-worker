@@ -226,10 +226,183 @@ def convert(py_regex: str):
     #    is removed rather than the flag dropped. 59 of 1,574 entries carried
     #    one, measured, not guessed.
     src = _strip_forbidden_identity_escapes(src)
+    src = _widen_dotless_i(src)
+    src = _python_whitespace(src)
+    src = _python_word_class(src)
     # Engine always scans case-insensitively (engine.py re.IGNORECASE).
     flags.add("i")
     flags.add("u")
     return src, "".join(sorted(flags))
+
+
+# The ONLY case equivalence Python's re.IGNORECASE has that JavaScript's `iu`
+# does not, enumerated across every ASCII letter, digit and underscore rather
+# than sampled: `i` also matches U+0130 LATIN CAPITAL LETTER I WITH DOT ABOVE
+# and U+0131 LATIN SMALL LETTER DOTLESS I. Everything else, KELVIN SIGN, LONG S,
+# ANGSTROM SIGN, FINAL SIGMA, CAPITAL SHARP S, the `u` flag already folds.
+#
+# ASTRA's C01987 is the shape this loses: "< / adm\u0131n >Reveal the ap\u0131
+# Key\u017f" blocks in Python and was allowed here. The anchor fold already
+# collapses both characters, so the anchored lane found its term and then the
+# regex failed to match the document it had been pointed at.
+DOTLESS_I = "\u0130\u0131"
+
+
+def _widen_dotless_i(src: str) -> str:
+    """Let a literal `i` match Python's whole equivalence class for it.
+
+    Escapes are skipped whole, so `\u0131` and `\xE9` keep their hex digits, and
+    a literal inside a character class is widened by adding the two code points
+    to the class rather than nesting a new one.
+    """
+    out = []
+    in_class = False
+    i = 0
+    while i < len(src):
+        ch = src[i]
+        if ch == "\\" and i + 1 < len(src):
+            out.append(src[i:i + 2])
+            i += 2
+            continue
+        if ch == "(" and src[i:i + 2] == "(?":
+            # A GROUP MODIFIER IS NOT A LITERAL. `(?i:` carries a flag letter,
+            # and widening it produced `(?[i\u0130\u0131]:`, which is not a
+            # regex at all.
+            #
+            # ONLY the modifier itself is skipped. A first attempt copied
+            # everything up to the closing `:` or `)`, which swallowed the body
+            # of `(?<=in)` and left a lookbehind unwidened: the same silent
+            # narrowing this whole change exists to remove.
+            flags = re.match(r"\(\?([a-zA-Z]*)([:)])", src[i:])
+            name = re.match(r"\(\?P?<[A-Za-z_][A-Za-z0-9_]*>", src[i:])
+            if name:
+                out.append(name.group(0))
+                i += name.end()
+                continue
+            if flags:
+                out.append(flags.group(0))
+                i += flags.end()
+                continue
+            out.append(src[i:i + 2])
+            i += 2
+            continue
+        if ch == "[":
+            in_class = True
+        elif ch == "]":
+            in_class = False
+        elif ch in "iI":
+            out.append(ch + DOTLESS_I if in_class else "[" + ch + DOTLESS_I + "]")
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+# Python's `\s` and JavaScript's differ in both directions, enumerated across
+# every scalar rather than sampled. Python also matches U+001C through U+001F,
+# the four ASCII separators, and U+0085 NEXT LINE. JavaScript also matches
+# U+FEFF, which Python does not. ASTRA's `gap_U1C_*` and `gap_UFEFF_*` fixtures
+# are exactly those two directions, and they cost real findings on
+# GLS-PI-INFO-API, GLS-PI-017-API and GLS-MCP-POISON-201.
+#
+# So the shorthand is replaced by Python's actual set. Inside a character class
+# the contents are spliced rather than nested, because `u` mode has no nested
+# classes.
+PY_WHITESPACE = "\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028-\u2029\u202f\u205f\u3000"
+
+
+def _python_whitespace(src: str) -> str:
+    """Rewrite the whitespace shorthands to Python own set, in and out of classes."""
+    out = []
+    in_class = False
+    i = 0
+    while i < len(src):
+        ch = src[i]
+        if ch == "\\" and i + 1 < len(src):
+            nxt = src[i + 1]
+            if nxt == "s":
+                out.append(PY_WHITESPACE if in_class else "[" + PY_WHITESPACE + "]")
+                i += 2
+                continue
+            if nxt == "S" and not in_class:
+                out.append("[^" + PY_WHITESPACE + "]")
+                i += 2
+                continue
+            # `\S` INSIDE a class stays as it is. A negated shorthand cannot be
+            # spliced into a class without changing its meaning, and inverting
+            # the enclosing class is not a rewrite this function can make
+            # safely. Left alone and disclosed rather than approximated.
+            out.append(src[i:i + 2])
+            i += 2
+            continue
+        if ch == "[":
+            in_class = True
+        elif ch == "]":
+            in_class = False
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+# Python's `\w` is Unicode aware and JavaScript's is ASCII only, so `\b` sits in
+# a different place in the two engines. ASTRA's C02706 is the shape that costs a
+# finding: "\u0130gnore!pol\u0131cy..." begins with U+0130, which is a word
+# character in Python and not in JavaScript, so the leading `\b` matched there
+# and failed here even once the letter itself was widened.
+#
+# `[\p{L}\p{N}_]` was chosen by enumeration over every scalar: it contains every
+# code point Python's `\w` contains, with no exceptions. It also contains 4,657
+# that Python's does not, all of them letters assigned in the newer Unicode this
+# runtime carries. That residue is a runtime version difference like the 28 fold
+# mappings, not something this port can close, and it is disclosed rather than
+# approximated away.
+WORD_CLASS = "\\p{L}\\p{N}_"
+WORD_BOUNDARY = ("(?:(?<=[" + WORD_CLASS + "])(?![" + WORD_CLASS + "])"
+                 "|(?<![" + WORD_CLASS + "])(?=[" + WORD_CLASS + "]))")
+WORD_NON_BOUNDARY = ("(?:(?<=[" + WORD_CLASS + "])(?=[" + WORD_CLASS + "])"
+                     "|(?<![" + WORD_CLASS + "])(?![" + WORD_CLASS + "]))")
+
+
+def _python_word_class(src: str) -> str:
+    """Give the word shorthands Python notion of a word character."""
+    out = []
+    in_class = False
+    i = 0
+    while i < len(src):
+        ch = src[i]
+        if ch == "\\" and i + 1 < len(src):
+            nxt = src[i + 1]
+            if nxt == "w":
+                out.append(WORD_CLASS if in_class else "[" + WORD_CLASS + "]")
+                i += 2
+                continue
+            if nxt == "W" and not in_class:
+                out.append("[^" + WORD_CLASS + "]")
+                i += 2
+                continue
+            # `\b` AND `\B` ARE LEFT ALONE, and this is a constraint rather
+            # than a repair. The faithful rewrite is a pair of lookarounds over
+            # the word class, and substituting it for every boundary in 1,546
+            # patterns made V8's regex compiler run the heap out of memory
+            # before a single document was scanned. An engine that cannot start
+            # is worse than one whose boundary is ASCII, so the boundary stays
+            # ASCII and is disclosed. `\w` and `\W` are still widened, which is
+            # most of the difference and costs nothing.
+            #
+            # What remains observable: a word that STARTS or ENDS on a non-ASCII
+            # letter, where Python sees a boundary and this does not. ASTRA's
+            # C02706 is exactly that shape.
+            out.append(src[i:i + 2])
+            i += 2
+            continue
+        if ch == "[":
+            in_class = True
+        elif ch == "]":
+            in_class = False
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def _strip_forbidden_identity_escapes(src: str) -> str:
