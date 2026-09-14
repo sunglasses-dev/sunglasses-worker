@@ -264,6 +264,13 @@ def main():
         # entries without an explicit tier derive it at runtime (no regex → B).
         if p.get("tier"):
             entry["tier"] = p["tier"]
+        # THE FIELD HAD NO WAY ACROSS. engine.py step 3 evaluates a pattern
+        # against raw text and then, when it declares `match_on: "normalized"`,
+        # against the normalized view as a SECOND SUBJECT, at any document
+        # length. Three rules declare it and the compiler was not carrying the
+        # field at all, so the Worker could only ever test them on raw text.
+        if p.get("match_on"):
+            entry["match_on"] = p["match_on"]
         ok = True
         for rx in p.get("regex", []) or []:
             try:

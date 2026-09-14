@@ -36,18 +36,15 @@ every run; replay a failure with `PARITY_SEED=<seed> python3 parity_test.py`.
 Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && python3 engine_parity.py && python3 policy_parity.py && python3 wide_parity.py`
 
 ## Honest deltas vs the pip scanner
-- **`match_on: "normalized"` is not implemented.** engine.py step 3 evaluates a
-  pattern against raw text and then, when the pattern declares this field,
-  against the normalized view as a second subject, regardless of document
-  length. Three of the shipped patterns declare it (`GLS-PI-INFO-API`,
-  `GLS-PIEMN-001-API`, `GLS-PI-016-API`) and this port evaluates them on raw
-  text only, so an evasion those three catch through the folded view is missed
-  here. Measured, not assumed: it is the whole of the current wide-parity delta.
-- **`anchor_terms` was not implemented** (fixed in this branch, listed until the
-  differential proves it). Seven patterns declare the rare token their match
-  cannot happen without so the engine searches only around it. Its absence
-  produced no missed detection in the corpus, but it is a lane the pip scanner
-  has and this one did not.
+- **`match_on: "normalized"` and `anchor_terms` — CLOSED 2026-09-13**, both
+  ported, both proven by the differential rather than by inspection. They are
+  recorded here rather than deleted because the gap was real and shipped: for
+  twelve days this port evaluated `GLS-PI-INFO-API`, `GLS-PIEMN-001-API` and
+  `GLS-PI-016-API` on raw text only, while the pip scanner also reads the
+  normalized view for them, and it had no anchored lane at all for the seven
+  rules that declare a rare token. `wide_parity` now reports 0 verdict splits
+  and 0 finding-set deltas over 1,555 case-channel pairs; before the port it
+  reported 2 deltas and still printed PASS, which is fixed separately.
 
 - **Unicode word boundaries.** JS `\w`/`\b` are ASCII-only; Python's are unicode-aware.
   Homoglyph normalization runs first and closes most of the gap, but a payload using

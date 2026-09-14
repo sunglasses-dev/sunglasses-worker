@@ -433,28 +433,50 @@ export function scan(text, channel = "message") {
     }
   }
 
-  // Lane 2 — regexes on RAW text (same as engine.py step 3).
+  // Lane 2 — regexes on RAW text, then on the NORMALIZED view for a pattern that
+  // asks for it (same as engine.py step 3).
+  //
+  // THE SECOND SUBJECT WAS MISSING. engine.py builds `subjects = [raw]` and
+  // appends the normalized view when the pattern declares
+  // `match_on: "normalized"`, at ANY document length — it is a property of the
+  // rule, not of the corroboration pass, which is separately length gated.
+  // Three of the shipped rules declare it and this lane tested them on raw text
+  // only, which is the whole of the wide-parity delta: GLS-PI-INFO-API is found
+  // by Python on the normalized view of a document whose raw text neither of
+  // its regexes matches.
+  //
+  // Raw stays FIRST and decides. engine.py's own note: replacing raw with
+  // normalized lost four detections whose filler was U+2028/U+2029, where the
+  // raw text matched and the folded text did not, so a flag meant to add reach
+  // removed some. Normalized is a second look, never a substitute, and the
+  // negation check runs against whichever subject matched.
   for (const { pattern, compiled } of regexPatterns) {
     if (!channelHit(pattern)) continue;
     if (seen.has(pattern.id)) continue;
-    for (const entry of compiled) {
-      const m = evalRegex(entry, text);
-      if (m) {
-        seen.add(pattern.id);
-        // NOTE: for windowed matches m.index is slice-relative — Python has the
-        // IDENTICAL behavior (match.start() is window-relative in _match_windowed
-        // results). Do NOT "fix" by adding the window offset; parity depends on
-        // mirroring engine.py exactly.
-        const negated = !pattern.negation_immune && checkNegation(text, m.index);
-        // Mechanisms only, and only when negation did not already fire — mirrors
-        // the if/elif ordering in engine.py.
-        const defensive =
-          !negated &&
-          pattern.id.startsWith("GLS-MECH-") &&
-          isDefensivelyFramed(text, m.index);
-        findings.push(makeFinding(pattern, m[0].slice(0, 50), negated, defensive));
-        break;
+    const subjects = pattern.match_on === "normalized" ? [text, normalized] : [text];
+    let decided = false;
+    for (const subject of subjects) {
+      for (const entry of compiled) {
+        const m = evalRegex(entry, subject);
+        if (m) {
+          seen.add(pattern.id);
+          // NOTE: for windowed matches m.index is slice-relative — Python has the
+          // IDENTICAL behavior (match.start() is window-relative in _match_windowed
+          // results). Do NOT "fix" by adding the window offset; parity depends on
+          // mirroring engine.py exactly.
+          const negated = !pattern.negation_immune && checkNegation(subject, m.index);
+          // Mechanisms only, and only when negation did not already fire — mirrors
+          // the if/elif ordering in engine.py.
+          const defensive =
+            !negated &&
+            pattern.id.startsWith("GLS-MECH-") &&
+            isDefensivelyFramed(text, m.index);
+          findings.push(makeFinding(pattern, m[0].slice(0, 50), negated, defensive));
+          decided = true;
+          break;
+        }
       }
+      if (decided) break;        // raw decided; do not look at the normalized view
     }
   }
 
