@@ -618,6 +618,20 @@ export const STATS = {
   // Mechanisms are a different kind of thing and get their own line.
   patterns: PATTERNS.length,
   mechanisms: MECHANISMS.length,
-  keywords: keywordCount,
+  // KEYWORDS = DISTINCT ENTRIES IN THE LIVE PRE-SCREEN INDEX, which is exactly
+  // `keywordToPatterns.size`, not the number of keyword strings the rules carry.
+  //
+  // This published 7,098 until 2026-09-14, the ENTRY total, while the pip
+  // scanner published 6,675 under the index definition. Two different questions
+  // wearing one word, and a visitor comparing the demo to the product saw a gap
+  // that was not there. The index is keyed on `kw.toLowerCase()` and every
+  // pattern regex is IGNORECASE, so two keywords differing only in case are ONE
+  // entry: `X-Agent-Policy`/`x-agent-policy` and `Does not override`/`does not
+  // override` are the only two such pairs, which is why a case-sensitive count
+  // reads 6,677 and the index reads 6,675.
+  keywords: keywordToPatterns.size,
+  // Kept because it is a real quantity, named so it can never be mistaken for
+  // the published one again.
+  keyword_entries: keywordCount,
   regex_patterns: regexPatterns.length,
 };

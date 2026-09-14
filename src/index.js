@@ -223,7 +223,14 @@ export default {
         // published v0.5.7 is what that costs.
         compiled_from: COMPILED_FROM,
         patterns: STATS.patterns,
+        // ONE WORD, ONE DEFINITION, the product of record's. Published with the
+        // sentence beside it so a reader never has to guess which quantity this
+        // is, and with pip's own figure so the comparison is on the page rather
+        // than left to the reader to attempt and get wrong.
         keywords: STATS.keywords,
+        keywords_definition:
+          "distinct entries in the live pre-screen index after the FP-guard strip",
+        pip_keywords: 6675,
         privacy: "Payloads are scanned in-memory and discarded. Nothing is stored, logged, or forwarded.",
         product_of_record: "pip install sunglasses (this demo approximates the pip engine)",
         known_deltas_vs_pip: LIMITATIONS,
