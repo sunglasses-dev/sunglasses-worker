@@ -19,16 +19,30 @@ if os.path.isdir(SCANNER):
 from sunglasses.engine import SunglassesEngine
 
 OUT = os.path.dirname(os.path.abspath(__file__))
-FIXTURES = os.path.expanduser(
-    "~/Desktop/SUNGLASSES_ASTRA_REVIEW_2026-09-04/WORKER22_REVIEW_3cfe154_2026-09-13/fixtures")
+# BOTH REVIEWS, every fixture either one saved. Round 1 left 66 counterexamples
+# and round 2 added 102 more in `additional_fixtures`, and his finding index
+# names 104 documents across the two. Running only the first set would have
+# reported a clean gate while 200 pairs were failing on the second.
+REVIEWS = [
+    "~/Desktop/SUNGLASSES_ASTRA_REVIEW_2026-09-04/WORKER22_REVIEW_3cfe154_2026-09-13/fixtures",
+    "~/Desktop/SUNGLASSES_ASTRA_REVIEW_2026-09-04/WORKER22_REVIEW_fc042f9_2026-09-14/fixtures",
+    "~/Desktop/SUNGLASSES_ASTRA_REVIEW_2026-09-04/WORKER22_REVIEW_fc042f9_2026-09-14/additional_fixtures",
+]
 CHANNELS = ["api_response", "log_memory", "message", "file"]
 TIMEOUT_MS = int(os.environ.get("ASTRA_PARITY_TIMEOUT_MS", "3000"))
 
-names = sorted(n for n in os.listdir(FIXTURES) if n.endswith(".txt"))
-cases = [{"name": f"{n[:-4]}|{ch}", "case": n[:-4],
-          "text": open(os.path.join(FIXTURES, n), encoding="utf-8").read(), "channel": ch}
-         for n in names for ch in CHANNELS]
-print(f"{len(names)} ASTRA counterexamples x {len(CHANNELS)} channels = {len(cases)} pairs")
+seen = {}
+for directory in REVIEWS:
+    directory = os.path.expanduser(directory)
+    if not os.path.isdir(directory):
+        continue
+    for n in sorted(os.listdir(directory)):
+        if n.endswith(".txt"):
+            seen.setdefault(n[:-4], os.path.join(directory, n))
+cases = [{"name": f"{case}|{ch}", "case": case,
+          "text": open(path, encoding="utf-8").read(), "channel": ch}
+         for case, path in sorted(seen.items()) for ch in CHANNELS]
+print(f"{len(seen)} ASTRA counterexamples x {len(CHANNELS)} channels = {len(cases)} pairs")
 
 eng = SunglassesEngine()
 py = []
@@ -79,17 +93,36 @@ vfail = [(c["name"], p["decision"], j["decision"])
          for c, p, j in zip(cases, py, js) if p["decision"] != j["decision"]]
 dfail = [(c["name"], sorted(set(p["ids"]) - set(j["ids"]))[:6], sorted(set(j["ids"]) - set(p["ids"]))[:6])
          for c, p, j in zip(cases, py, js) if set(p["ids"]) != set(j["ids"])]
-slow = [(c["name"], round(j["seconds"], 2)) for c, j in zip(cases, js)
-        if j["seconds"] * 1000 > TIMEOUT_MS]
+# A DIFFERENTIAL, not a stopwatch. The first version failed any case where the
+# port took longer than the bound, and ASTRA's C01688 takes 2.9 s here and 4.3 s
+# in the pip scanner: it is slow in BOTH engines, and calling that a port defect
+# points at the wrong thing. A document the reference engine is also slow on is
+# the scanner's characteristic. What this gate is for is the port being slower
+# than the thing it ports.
+#
+# No invented ratio. A first version used a 2x threshold, which is a number I
+# chose rather than measured, and C01688 sits at 1.9 and would have passed by
+# construction. The comparison is simply whether the port is slower than the
+# engine it ports, on a document already over the bound.
+slow = [(c["name"], round(j["seconds"], 2), round(p["seconds"], 2))
+        for c, p, j in zip(cases, py, js)
+        if j["seconds"] * 1000 > TIMEOUT_MS and j["seconds"] > p["seconds"]]
+both_slow = [(c["name"], round(j["seconds"], 2), round(p["seconds"], 2))
+             for c, p, j in zip(cases, py, js)
+             if j["seconds"] * 1000 > TIMEOUT_MS and j["seconds"] <= p["seconds"]]
 
 print(f"\npairs: {len(cases)}\nverdict disagreements: {len(vfail)}")
 for v in vfail[:20]: print(f"  ❌ {v[0]}: py={v[1]} js={v[2]}")
 print(f"finding-set deltas: {len(dfail)}")
 for d in dfail[:20]: print(f"  ⚠️ {d[0]}: only-py={d[1]} only-js={d[2]}")
-print(f"over {TIMEOUT_MS}ms in JS: {len(slow)}")
-for s in slow[:10]: print(f"  🐢 {s[0]}: {s[1]}s")
+print(f"slower in JS than the pip scanner, over the bound: {len(slow)}")
+for row in slow[:10]:
+    print(f"  🐢 {row[0]}: js {row[1]}s vs py {row[2]}s  ({row[1] / max(row[2], 0.001):.2f}x)")
+print(f"over the bound in BOTH engines (the scanner's own cost, not the port's): {len(both_slow)}")
+for row in both_slow[:10]: print(f"  ⏱  {row[0]}: js {row[1]}s vs py {row[2]}s")
 
-json.dump({"pairs": len(cases), "verdict_fail": vfail, "id_delta": dfail, "slow": slow},
+json.dump({"pairs": len(cases), "verdict_fail": vfail, "id_delta": dfail,
+           "slow_in_js_only": slow, "slow_in_both": both_slow},
           open(os.path.join(OUT, "astra_parity_report.json"), "w"), indent=1)
 ok = not vfail and not dfail and not slow
 print("\n🟢 ASTRA COUNTEREXAMPLE PARITY PASS" if ok else "\n🔴 ASTRA COUNTEREXAMPLE PARITY FAIL")

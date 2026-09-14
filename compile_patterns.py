@@ -312,14 +312,52 @@ def _widen_dotless_i(src: str) -> str:
 PY_WHITESPACE = "\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028-\u2029\u202f\u205f\u3000"
 
 
+def _class_spans(src: str):
+    """(start, end) of every character class body, escapes respected."""
+    spans, i, start = [], 0, None
+    while i < len(src):
+        if src[i] == "\\" and i + 1 < len(src):
+            i += 2
+            continue
+        if src[i] == "[" and start is None:
+            start = i
+        elif src[i] == "]" and start is not None:
+            spans.append((start, i))
+            start = None
+        i += 1
+    return spans
+
+
+def _is_any_char_class(body: str) -> bool:
+    """A class holding a shorthand and its own negation means EVERY character.
+
+    That is the idiom this nearly broke. Splicing Python's whitespace set into
+    the any-character class leaves the spliced ranges beside the JavaScript
+    complement, and U+FEFF falls out of both halves: it is whitespace to
+    JavaScript and therefore excluded from the complement, and it is not
+    whitespace to Python and therefore absent from the spliced set. The one
+    character the two definitions disagree about is exactly the one the rewrite
+    lost, and ASTRA's C02748 is a document with a U+FEFF sitting inside such a
+    bounded gap.
+
+    A class holding a shorthand and its negation is left alone, because it
+    already means the same thing on both sides.
+    """
+    pairs = (("s", "S"), ("w", "W"), ("d", "D"))
+    return any("\\" + lo in body and "\\" + hi in body for lo, hi in pairs)
+
+
 def _python_whitespace(src: str) -> str:
     """Rewrite the whitespace shorthands to Python own set, in and out of classes."""
+    keep = [(a, b) for a, b in _class_spans(src)
+            if _is_any_char_class(src[a + 1:b])]
+    inside_any = lambda idx: any(a <= idx <= b for a, b in keep)
     out = []
     in_class = False
     i = 0
     while i < len(src):
         ch = src[i]
-        if ch == "\\" and i + 1 < len(src):
+        if ch == "\\" and i + 1 < len(src) and not inside_any(i):
             nxt = src[i + 1]
             if nxt == "s":
                 out.append(PY_WHITESPACE if in_class else "[" + PY_WHITESPACE + "]")
@@ -366,12 +404,15 @@ WORD_NON_BOUNDARY = ("(?:(?<=[" + WORD_CLASS + "])(?=[" + WORD_CLASS + "])"
 
 def _python_word_class(src: str) -> str:
     """Give the word shorthands Python notion of a word character."""
+    keep = [(a, b) for a, b in _class_spans(src)
+            if _is_any_char_class(src[a + 1:b])]
+    inside_any = lambda idx: any(a <= idx <= b for a, b in keep)
     out = []
     in_class = False
     i = 0
     while i < len(src):
         ch = src[i]
-        if ch == "\\" and i + 1 < len(src):
+        if ch == "\\" and i + 1 < len(src) and not inside_any(i):
             nxt = src[i + 1]
             if nxt == "w":
                 out.append(WORD_CLASS if in_class else "[" + WORD_CLASS + "]")

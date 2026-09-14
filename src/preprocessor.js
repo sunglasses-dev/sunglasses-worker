@@ -129,8 +129,22 @@ export function decodeHtmlEntities(text) {
     }
     // Longest named prefix wins and the remainder is kept, which is how
     // `&notit;` becomes `\u00acit;` rather than staying whole.
-    for (let x = body.length; x > 1; x--) {
-      const candidate = NAMED_ENTITIES[body.slice(0, x).toLowerCase()];
+    //
+    // THE TERMINATING SEMICOLON IS PART OF THE NAME. Python's table is keyed
+    // with it, `quot;` as well as `quot`, and this table is keyed without it, so
+    // matching the stem and re-appending what followed turned every ordinary
+    // `&quot;` into a quote FOLLOWED BY A SEMICOLON. ASTRA measured the cost:
+    // 100 documents across 2 channels, 200 block-to-allow pairs on the six API
+    // siblings, from one character.
+    //
+    // I introduced this tonight while making the numeric form semicolon
+    // optional, and my own probe showed `&notit;` coming back undecoded. I read
+    // that as the documented named-subset delta, which it also is, and stopped.
+    // A wrong answer with a ready explanation is the easiest kind to keep.
+    for (let x = body.length; x > 0; x--) {
+      const slice = body.slice(0, x);
+      const key = slice.endsWith(";") ? slice.slice(0, -1) : slice;
+      const candidate = NAMED_ENTITIES[key.toLowerCase()];
       if (candidate !== undefined) return candidate + body.slice(x);
     }
     return "&" + body;

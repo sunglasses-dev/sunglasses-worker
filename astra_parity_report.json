@@ -1,5 +1,5 @@
 {
- "pairs": 264,
+ "pairs": 672,
  "verdict_fail": [
   [
    "C02706|api_response",
@@ -52,5 +52,17 @@
    []
   ]
  ],
- "slow": []
+ "slow_in_js_only": [
+  [
+   "C01688|message",
+   8.22,
+   4.39
+  ],
+  [
+   "C01688|file",
+   8.34,
+   4.63
+  ]
+ ],
+ "slow_in_both": []
 }
