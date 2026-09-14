@@ -3,7 +3,7 @@
 // PRIVACY: payloads are scanned in-memory and discarded. Nothing is stored,
 // logged, or forwarded. No cookies, no analytics, no telemetry.
 import { scan, STATS, VALID_CHANNELS } from "./engine.js";
-import { PATTERNS_VERSION } from "./patterns.js";
+import { PATTERNS_VERSION, COMPILED_FROM } from "./patterns.js";
 import { LIMITATIONS } from "./preprocessor.js";
 import { parseGitHubUrl, fetchRawFile, AGENT_SURFACES, GITHUB_CAPS } from "./github.js";
 import { rollupRepo, TIER_B_IDS, TIER_S_SIGNATURE_IDS } from "./policy.js";
@@ -217,6 +217,11 @@ export default {
         // nothing could see the gap, because the only two places this string appeared
         // were a scan response body and a footer nobody reads.
         patterns_version: PATTERNS_VERSION,
+        // The scanner COMMIT this engine was compiled from, not just its version
+        // string. A version alone cannot tell a reader which tree produced the
+        // bytes, and the twelve days the demo spent on v0.5.2 while the site
+        // published v0.5.7 is what that costs.
+        compiled_from: COMPILED_FROM,
         patterns: STATS.patterns,
         keywords: STATS.keywords,
         privacy: "Payloads are scanned in-memory and discarded. Nothing is stored, logged, or forwarded.",
