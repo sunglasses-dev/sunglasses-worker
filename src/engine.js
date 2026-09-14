@@ -87,7 +87,112 @@ function matchWindowed(rx, text) {
 // Port of engine.py _eval_regex (v0.3.3). "guarded" = caret-led predicate:
 // negation guards keep DOCUMENT scope (a defusing context anywhere in the file
 // defuses — the fastapi lesson), the positive core must co-occur in ONE window.
+// ── ANCHORED MODE (port of engine.py _match_anchored, landed scanner-side in
+// #155) ─────────────────────────────────────────────────────────────────────
+// A rule declares the rare token its match cannot happen without, and only the
+// text around that token is searched. Ported because the Worker was missing it
+// outright: GLS-PI-INFO-API, a HIGH prompt_injection rule, was found by Python
+// and not here, and both engines' regexes agree that neither of that rule's two
+// regexes matches the document. Python reports it through this lane. A port
+// that stops at the regexes is a port of the wrong half.
+//
+// The fold table, the anchor terms, the span and the decision about whether a
+// rule may use this mode at all are computed by the ENGINE'S OWN code at
+// compile time and handed over in patterns.js. The span needs Python's regex
+// parser and cannot be derived here; re-implementing a rule about where a match
+// may be would be a second place for it to be wrong.
+
+// engine.py folds through `_prefilter.fold`: translate, THEN lower. Four
+// entries, because lowering first splits U+0130 into two codepoints and the
+// table is meant to collapse it.
+const CASEFOLD = new Map([[0x130, "i"], [0x131, "i"], [0x212a, "k"], [0x17f, "s"]]);
+
+function fold(text) {
+  let out = "";
+  for (const ch of text) out += CASEFOLD.get(ch.codePointAt(0)) ?? ch;
+  return out.toLowerCase();
+}
+
+function matchAnchored(entry, text) {
+  const { anchors, span } = entry;
+  const length = text.length;
+  const folded = fold(text);
+  // A position found in a differently sized string points somewhere else in the
+  // document. engine.py searches everything rather than guess; so does this.
+  if (folded.length !== length) return searchBounded(entry, text, 0, length);
+
+  // A document can be MADE of the anchor, and then the merged windows cover it
+  // and anchoring saves nothing. Stop as soon as that is known: the threshold is
+  // one more than the number of non-overlapping windows of width `span` that fit.
+  const budget = Math.floor(length / Math.max(span, 1)) + 1;
+  const spots = [];
+  for (const term of anchors) {
+    let at = folded.indexOf(term);
+    while (at !== -1) {
+      spots.push(at);
+      if (spots.length > budget) return searchBounded(entry, text, 0, length);
+      at = folded.indexOf(term, at + 1);
+    }
+  }
+  if (spots.length === 0) return null;       // the rule cannot match this document
+
+  // A match containing the anchor at `p` must START in [p - span, p]. Windows
+  // are ranges of START positions, merged where they touch.
+  spots.sort((a, b) => a - b);
+  const windows = [];
+  let lo = Math.max(0, spots[0] - span);
+  let hi = spots[0];
+  for (const at of spots.slice(1)) {
+    if (at - span <= hi) hi = at;
+    else { windows.push([lo, hi]); lo = Math.max(0, at - span); hi = at; }
+  }
+  windows.push([lo, hi]);
+
+  for (const [wlo, whi] of windows) {
+    // `+ 1`: a word-boundary operator is answered from the character on each
+    // side, and the stop is a wall the regex reads as end of string.
+    const stop = Math.min(length, whi + span + 1);
+    let pos = wlo;
+    while (pos <= whi) {
+      const m = searchBounded(entry, text, pos, stop);
+      if (m === null || m.index > whi) break;
+      // The stop is an invented end of string. Re-run the match from the same
+      // position against the WHOLE document, so what comes back is a match the
+      // document really contains.
+      const confirmed = matchAt(entry, text, m.index);
+      if (confirmed !== null) return confirmed;
+      pos = m.index + 1;
+    }
+  }
+  return null;
+}
+
+// `pos`/`endpos` have no JS equivalent, so the start is bounded with lastIndex
+// and the end by rejecting a match that runs past it. NOT identical to Python:
+// with a real endpos the engine could find a SHORTER alternative that fits,
+// where this rejects and the caller advances one character and tries again.
+// The differential over the whole corpus is what decides whether that gap is
+// observable, and it is reported rather than assumed.
+function searchBounded(entry, text, pos, stop) {
+  const rx = entry.rxGlobal;
+  rx.lastIndex = pos;
+  let m;
+  while ((m = rx.exec(text)) !== null) {
+    if (m.index >= stop) return null;
+    if (m.index + m[0].length <= stop) return m;
+    rx.lastIndex = m.index + 1;
+  }
+  return null;
+}
+
+function matchAt(entry, text, at) {
+  const rx = entry.rxSticky;
+  rx.lastIndex = at;
+  return rx.exec(text);
+}
+
 function evalRegex(entry, text) {
+  if (entry.mode === "anchored") return matchAnchored(entry, text);
   if (entry.mode === "guarded") {
     for (const g of entry.guards) {
       g.lastIndex = 0;
@@ -152,12 +257,23 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
         // Predicates (windowed/guarded cores + doc-wide guards) run at position
         // 0 via sticky flag (mirrors Python .match) — the ReDoS guard from
         // engine.py. Plain regexes keep ordinary exec (Python .search).
-        const sticky = r.mode !== "plain";
-        compiled.push({
+        const sticky = r.mode !== "plain" && r.mode !== "anchored";
+        const entry = {
           mode: r.mode,
           rx: new RegExp(r.source, r.flags + (sticky ? "y" : "")),
           guards: (r.guards || []).map((g) => new RegExp(g.source, g.flags + "y")),
-        });
+        };
+        if (r.mode === "anchored") {
+          // TWO compiled forms, because the Python lane makes two different
+          // calls: a bounded `search` and, on a candidate, an anchored `match`
+          // against the whole document. `g` gives the first a movable start,
+          // `y` gives the second Python's `.match(text, pos)` exactly.
+          entry.rxGlobal = new RegExp(r.source, r.flags + "g");
+          entry.rxSticky = new RegExp(r.source, r.flags + "y");
+          entry.anchors = r.anchors || [];
+          entry.span = Math.max(r.span || 1, 1);
+        }
+        compiled.push(entry);
       } catch {
         // Validated at compile time — but only for the Node that ran the
         // compiler. A runtime with an older V8 (e.g. `(?i:` modifier groups
