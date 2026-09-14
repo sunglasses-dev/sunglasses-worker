@@ -161,11 +161,21 @@ gate() {
   fi
   ok "$name"
 }
-# THE GATES MUST READ THE ENGINE THE BUILD READ. The parity scripts resolve the
+# THE THREE PARITY SCRIPTS MUST READ THE ENGINE THE BUILD READ. They resolve the
 # scanner through SUNGLASSES_SRC, not SG_SCANNER_ROOT, so without this they
 # imported the SHARED tree while the build came from the private checkout, and a
 # green gate would have described a different engine than the artifact. Both
-# names are exported because the compilers and the gates read different ones.
+# names are exported because the compilers and the parity scripts read different
+# ones.
+#
+# THE DISCLOSURE GATE IS NOT ONE OF THEM, per ASTRA's correction on d97870d. It
+# imports no Python scanner module at all: it reads `src/patterns.js` and
+# `src/mechanisms.js` out of this Worker directory and compares the compiled
+# counts against the shipped disclosure strings. So neither variable affects it,
+# and an earlier version of this comment said all four gates import the private
+# scanner, which was false for that one. It is run here because it checks the
+# artifact this build just emitted, which is a different question from parity and
+# worth asking in the same place.
 export SG_SCANNER_ROOT="$PRIVATE"
 export SUNGLASSES_SRC="$PRIVATE"
 gate "disclosure gate" python3 disclosure_gate.py
