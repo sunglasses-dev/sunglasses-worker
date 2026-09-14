@@ -199,7 +199,54 @@ function matchAt(entry, text, at) {
   return rx.exec(text);
 }
 
-function evalRegex(entry, text) {
+// THE LITERAL PREFILTER, whose derivation lives in the compiler because it needs
+// Python's regex parser. Each entry arrives with a CNF requirement: an AND of
+// clauses, each an OR of folded ASCII literals at least four characters long. A
+// document missing every literal of any one clause cannot match that regex, so
+// the regex does not run.
+//
+// ASTRA measured the cost of not having it. The exact #157 document, 27,000
+// characters of one long word, completes in Python and took 100 seconds here,
+// because every expensive pattern was run against every one of those
+// characters. This is the "regex literal prefilter" his review records as
+// absent, ported as a skip test rather than as a second parser.
+//
+// SOUNDNESS COMES FROM THE DERIVATION, not from this function. A clause is
+// implied by the match, so skipping when it is absent cannot lose a finding.
+// An entry with no requirement is always run.
+function canSkip(entry, folded, pages) {
+  const requires = entry.requires;
+  if (!requires || requires.length === 0) return false;
+  for (const clause of requires) {
+    let present = false;
+    for (const literal of clause.lits) {
+      if (folded.includes(literal)) { present = true; break; }
+    }
+    // A CLASS BRANCH REQUIRES A CHARACTER, not a literal, and this is the half
+    // that answers #157: a bare class under `+` carries no literal, so a clause
+    // holding one could never be skipped and the whole regex ran on every
+    // document. Pages OVERLAP is deliberately conservative, it means a
+    // character MIGHT be present, which is the only safe direction for a skip.
+    if (!present && clause.pages.length) {
+      for (const page of clause.pages) {
+        if (pages.has(page)) { present = true; break; }
+      }
+    }
+    if (!present) return true;
+  }
+  return false;
+}
+
+const PAGE_SHIFT = 8;
+
+function pagesOf(text) {
+  const pages = new Set();
+  for (const ch of text) pages.add(ch.codePointAt(0) >> PAGE_SHIFT);
+  return pages;
+}
+
+function evalRegex(entry, text, folded, pages) {
+  if (folded !== undefined && canSkip(entry, folded, pages)) return null;
   if (entry.mode === "anchored") return matchAnchored(entry, text);
   if (entry.mode === "guarded") {
     for (const g of entry.guards) {
@@ -270,6 +317,11 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
           mode: r.mode,
           rx: new RegExp(r.source, r.flags + (sticky ? "y" : "")),
           guards: (r.guards || []).map((g) => new RegExp(g.source, g.flags + "y")),
+          // CARRIED THROUGH. The compiler derives this and the index dropped it,
+          // so every entry arrived with no requirement and the prefilter skipped
+          // nothing at all. Silent, because a prefilter that never fires is
+          // indistinguishable from one that has nothing to skip.
+          requires: r.requires,
         };
         if (r.mode === "anchored") {
           // TWO compiled forms, because the Python lane makes two different
@@ -458,14 +510,24 @@ export function scan(text, channel = "message") {
   // raw text matched and the folded text did not, so a flag meant to add reach
   // removed some. Normalized is a second look, never a substitute, and the
   // negation check runs against whichever subject matched.
+  const foldCache = new Map();
   for (const { pattern, compiled } of regexPatterns) {
     if (!channelHit(pattern)) continue;
     if (seen.has(pattern.id)) continue;
     const subjects = pattern.match_on === "normalized" ? [text, normalized] : [text];
     let decided = false;
     for (const subject of subjects) {
+      // Folded ONCE per subject and reused for every entry of this pattern, the
+      // way Python folds the document once for the whole index. Folding per
+      // entry would hand the cost straight back.
+      let view = foldCache.get(subject);
+      if (view === undefined) {
+        const foldedSubject = fold(subject);
+        view = { folded: foldedSubject, pages: pagesOf(foldedSubject) };
+        foldCache.set(subject, view);
+      }
       for (const entry of compiled) {
-        const m = evalRegex(entry, subject);
+        const m = evalRegex(entry, subject, view.folded, view.pages);
         if (m) {
           seen.add(pattern.id);
           // NOTE: for windowed matches m.index is slice-relative — Python has the

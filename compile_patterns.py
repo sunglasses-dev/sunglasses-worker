@@ -405,6 +405,48 @@ def _python_word_class(src: str) -> str:
     return "".join(out)
 
 
+def _required_literals(rx: str):
+    """The literals a match cannot happen without, derived by the ENGINE'S OWN parser.
+
+    Python's prefilter parses each regex with `sre_parse` and produces a CNF
+    requirement: an AND of clauses, each an OR of ASCII literals at least four
+    characters long. If the folded document is missing every literal of any one
+    clause, the regex cannot match and need not run.
+
+    THE DERIVATION STAYS IN PYTHON. It needs the regex parser, and a second
+    implementation of a rule about when a match is possible is a second place
+    for it to be wrong. The Worker is handed the answer and does a membership
+    test, which is the half that is cheap in either language.
+
+    ASTRA measured the consequence of not having this: the exact #157 document,
+    27,000 characters, completes in Python and took 100 seconds here, because
+    every expensive regex ran against every one of those characters.
+
+    CLASS CLAUSES ARE EMITTED TOO, and they are the half that matters for #157.
+    A bare character class under `+` carries no literal, and Python's own note
+    names the case: a braille class beside a base64 branch in GLS-ENC-ALT-210
+    cost 255 seconds on a 27 KB document that could not possibly match either.
+    The branch does require something, one character inside its ranges, and that
+    is answered by comparing the 256 character pages the ranges touch against
+    the pages the document touches.
+    """
+    out = []
+    for clause in _prefilter.requirement(rx):
+        if isinstance(clause, _prefilter.Clause):
+            literals = sorted(l for l in clause.literals if l)
+            pages = sorted({page for cc in clause.classes for page in cc.pages})
+        else:
+            literals = sorted(l for l in clause if l)
+            pages = []
+        if not literals and not pages:
+            # A clause requiring nothing cannot skip anything, and emitting it
+            # as "requires one of nothing" would skip EVERYTHING. Dropped, which
+            # is the safe direction.
+            continue
+        out.append({"lits": literals, "pages": pages})
+    return out
+
+
 def _strip_forbidden_identity_escapes(src: str) -> str:
     """Drop the backslashes `u` mode rejects, leaving the character itself.
 
@@ -520,9 +562,11 @@ def main():
                     ok = False
                     break
                 entry["regex"].append({"mode": "guarded", "source": core_src,
-                                       "flags": core_fl, "guards": guards_js})
+                                       "flags": core_fl, "guards": guards_js,
+                                       "requires": _required_literals(rx)})
             elif SunglassesEngine._is_anchored(rx):
-                entry["regex"].append({"mode": "windowed", "source": src, "flags": fl})
+                entry["regex"].append({"mode": "windowed", "source": src, "flags": fl,
+                                       "requires": _required_literals(rx)})
             elif p.get("anchor_terms"):
                 # ANCHORED. The engine's fourth mode, landed in #155: a rule
                 # states the rare token its match cannot happen without, and only
@@ -538,7 +582,8 @@ def main():
                 refusal = _ENGINE._anchor_refusal(p, rx)
                 if refusal is not None:
                     entry["regex"].append({"mode": "plain", "source": src, "flags": fl,
-                                           "anchor_refused": refusal})
+                                           "anchor_refused": refusal,
+                                           "requires": _required_literals(rx)})
                 else:
                     terms = sorted(
                         {_prefilter.fold(a) for a in p["anchor_terms"] if a},
@@ -548,9 +593,11 @@ def main():
                             else int(p.get("anchor_span", SunglassesEngine.ANCHOR_SPAN)))
                     entry["regex"].append({"mode": "anchored", "source": src,
                                            "flags": fl, "anchors": terms,
-                                           "span": max(span, 1)})
+                                           "span": max(span, 1),
+                                           "requires": _required_literals(rx)})
             else:
-                entry["regex"].append({"mode": "plain", "source": src, "flags": fl})
+                entry["regex"].append({"mode": "plain", "source": src, "flags": fl,
+                                       "requires": _required_literals(rx)})
         if ok:
             slots.append((len(compiled), entry))
             compiled.append(entry)
