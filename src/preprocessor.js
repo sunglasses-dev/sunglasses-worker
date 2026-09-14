@@ -6,6 +6,8 @@ export const LIMITATIONS = [
   "HTML entity decoding covers numeric + common named entities (Python decodes the full HTML5 named set)",
   "Python str.isprintable() is approximated for base64 segment screening",
   "JS \\w and \\b are ASCII-only; Python's match unicode letters (the pip scanner also normalizes homoglyphs first, which closes most of that gap)",
+  "This demo runs the scanner 0.5.2 pattern set, behind the pip release; two pattern fields added since (match_on normalized, anchor_terms) are not ported yet, so a small number of rules fire in pip and not here",
+  "No bounded search yet (the scanner 0.5.8 fix for GLS-MCP-POISON-201 and long single-word documents); a pathological input can hit the Workers CPU limit and return an error instead of a verdict; 30 scans per minute per IP",
 ];
 
 const HOMOGLYPHS = {
