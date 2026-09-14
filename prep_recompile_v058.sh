@@ -33,8 +33,18 @@ TAG="v0.5.8"
 # head, not the tag, so a rehearsal build must be thrown away.
 REHEARSE="${SG_REHEARSE_REF:-}"
 
-# Measured 2026-09-14 from release/v0.5.8, and identical at b4285bb / 600cb74 / main.
+# Measured 2026-09-14 from release/v0.5.8, identical at b4285bb / 600cb74 / main,
+# and confirmed identical at the #167 squash. ASTRA recorded the same hash as his
+# reference for the tag's patterns.py, reached independently.
 EXPECTED_PATTERNS_SHA256="bb79c277ac30e56eb19bd519e32264ce2ccf36e3c48cba77919168e366736ed2"
+
+# THE COMMIT THE TAG IS SUPPOSED TO LAND ON. #167 merged as this squash and
+# `b7e33c2` carries __version__ 0.5.8. Pinned because "a tag named v0.5.8
+# exists" is a weaker statement than "the tag points at the commit that was
+# reviewed": a tag can be cut on the wrong commit, moved, or recreated, and the
+# name would look identical either way. If the tag resolves elsewhere this
+# refuses rather than compiling from whatever it found.
+EXPECTED_TAG_COMMIT="b7e33c2393f700981125dc3c4cfad0ef36e17243"
 
 die() { printf '\n⛔ REFUSED: %s\n' "$1" >&2; exit 1; }
 ok()  { printf '  ✓ %s\n' "$1"; }
@@ -49,6 +59,10 @@ else
   git -C "$SCANNER" rev-parse -q --verify "refs/tags/${TAG}" >/dev/null \
     || die "${TAG} does not exist yet. It lands after main certifies the #167 squash. Nothing to deploy until then."
   TAG_SHA="$(git -C "$SCANNER" rev-parse "refs/tags/${TAG}^{commit}")"
+  [ "$TAG_SHA" = "$EXPECTED_TAG_COMMIT" ] \
+    || die "${TAG} points at ${TAG_SHA}
+     expected ${EXPECTED_TAG_COMMIT} (the #167 squash)
+     The tag is not on the commit this was prepared against. Someone cut, moved or recreated it. Re-verify before deploying anything."
 fi
 ok "${TAG} -> ${TAG_SHA}"
 
