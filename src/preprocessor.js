@@ -82,32 +82,66 @@ export function collapseWhitespace(text) {
   return text.replace(/[\t\r\x0b\x0c]+/g, " ").replace(/ {2,}/g, " ").trim();
 }
 
+// Python's html module tables, extracted from the interpreter rather than
+// retyped. `_invalid_charrefs` remaps the Windows-1252 range the way the
+// HTML5 parser does, and `_invalid_codepoints` are dropped entirely.
+const INVALID_CHARREFS = new Map(Object.entries({"0": "�", "13": "\r", "128": "€", "129": "", "130": "‚", "131": "ƒ", "132": "„", "133": "…", "134": "†", "135": "‡", "136": "ˆ", "137": "‰", "138": "Š", "139": "‹", "140": "Œ", "141": "", "142": "Ž", "143": "", "144": "", "145": "‘", "146": "’", "147": "“", "148": "”", "149": "•", "150": "–", "151": "—", "152": "˜", "153": "™", "154": "š", "155": "›", "156": "œ", "157": "", "158": "ž", "159": "Ÿ"}).map(([k, v]) => [Number(k), v]));
+const INVALID_CODEPOINTS = new Set([1, 2, 3, 4, 5, 6, 7, 8, 11, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 64976, 64977, 64978, 64979, 64980, 64981, 64982, 64983, 64984, 64985, 64986, 64987, 64988, 64989, 64990, 64991, 64992, 64993, 64994, 64995, 64996, 64997, 64998, 64999, 65000, 65001, 65002, 65003, 65004, 65005, 65006, 65007, 65534, 65535, 131070, 131071, 196606, 196607, 262142, 262143, 327678, 327679, 393214, 393215, 458750, 458751, 524286, 524287, 589822, 589823, 655358, 655359, 720894, 720895, 786430, 786431, 851966, 851967, 917502, 917503, 983038, 983039, 1048574, 1048575, 1114110, 1114111]);
+
+// THE SEMICOLON IS OPTIONAL, which is the whole of ASTRA's C01978 finding. This
+// required one, so `&#65` stayed literal here and decoded to `A` in Python, and
+// a payload written without semicolons was invisible to the port. The pattern
+// and the decision order below are Python's `html.unescape`, transcribed:
+//   &(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)
+// Named references still resolve against the subset this port carries, and that
+// subset remains a documented delta. What is no longer a delta is the numeric
+// form, its optional semicolon, and its invalid code point handling.
 export function decodeHtmlEntities(text) {
   if (!text.includes("&")) return text;
-  return text.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g, (m, body) => {
+  return text.replace(/&(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)/g, (m, body) => {
     if (body[0] === "#") {
       const hex = body[1] === "x" || body[1] === "X";
-      const code = parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
-      if (Number.isFinite(code) && code >= 0 && code <= 0x10ffff) {
-        try { return String.fromCodePoint(code); } catch { return m; }
-      }
-      return m;
+      const digits = body.slice(hex ? 2 : 1).replace(/;$/, "");
+      const code = parseInt(digits, hex ? 16 : 10);
+      if (!Number.isFinite(code)) return m;
+      if (INVALID_CHARREFS.has(code)) return INVALID_CHARREFS.get(code);
+      if ((code >= 0xd800 && code <= 0xdfff) || code > 0x10ffff) return "\uFFFD";
+      if (INVALID_CODEPOINTS.has(code)) return "";
+      return String.fromCodePoint(code);
     }
-    return NAMED_ENTITIES[body.toLowerCase()] ?? m;
+    // Longest named prefix wins and the remainder is kept, which is how
+    // `&notit;` becomes `\u00acit;` rather than staying whole.
+    for (let x = body.length; x > 1; x--) {
+      const candidate = NAMED_ENTITIES[body.slice(0, x).toLowerCase()];
+      if (candidate !== undefined) return candidate + body.slice(x);
+    }
+    return "&" + body;
   });
 }
 
+// BYTES, THEN ONE REPLACING DECODE, which is what Python's `unquote` does. The
+// fallback here decoded each contiguous escape run and, when a run held invalid
+// UTF-8, left THE WHOLE RUN encoded: ASTRA's C01982 puts an invalid byte in
+// front of valid encoded text, so everything after it stayed hidden from the
+// scanner while Python read it as U+FFFD followed by the real words. A decoder
+// that gives up on a run is a decoder an attacker can switch off with one byte.
 export function decodeUrlEncoding(text) {
   if (!text.includes("%")) return text;
   if (!/%[0-9A-Fa-f]{2}/.test(text)) return text;
-  // Python's unquote never throws on malformed input; decode leniently.
-  try {
-    return decodeURIComponent(text);
-  } catch {
-    return text.replace(/(?:%[0-9A-Fa-f]{2})+/g, (seq) => {
-      try { return decodeURIComponent(seq); } catch { return seq; }
-    });
+  const bytes = [];
+  const encoder = new TextEncoder();
+  for (let i = 0; i < text.length; ) {
+    if (text[i] === "%" && /^[0-9A-Fa-f]{2}$/.test(text.slice(i + 1, i + 3))) {
+      bytes.push(parseInt(text.slice(i + 1, i + 3), 16));
+      i += 3;
+      continue;
+    }
+    // Literal text keeps its own bytes, so a round trip cannot alter it.
+    for (const b of encoder.encode(text[i])) bytes.push(b);
+    i += 1;
   }
+  // `fatal: false` is the replacement behaviour of Python's errors="replace".
+  return new TextDecoder("utf-8", { fatal: false }).decode(new Uint8Array(bytes));
 }
 
 export function decodeHexEscapes(text) {

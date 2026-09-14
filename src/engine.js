@@ -167,22 +167,30 @@ function matchAnchored(entry, text) {
   return null;
 }
 
-// `pos`/`endpos` have no JS equivalent, so the start is bounded with lastIndex
-// and the end by rejecting a match that runs past it. NOT identical to Python:
-// with a real endpos the engine could find a SHORTER alternative that fits,
-// where this rejects and the caller advances one character and tries again.
-// The differential over the whole corpus is what decides whether that gap is
-// observable, and it is reported rather than assumed.
+// `rx.search(text, pos, endpos)`, which JavaScript has no direct form of. The
+// end is imposed by TRUNCATING THE SUBJECT, so the regex engine backtracks
+// inside the window and can settle on a shorter alternative that fits.
+//
+// The previous version searched the whole document, rejected any result that
+// ran past the bound and advanced the start by one. That is not the same
+// operation: a pattern whose greedy branch overshoots has a shorter branch that
+// Python finds and this discarded, and the later full-document confirmation
+// cannot recover a candidate that was never produced. ASTRA's neutral control
+// is the minimal case, an unbounded expression with declared span 10 over a
+// 105 character subject: Python returns [0, 105] and this returned no match.
+//
+// The left context is kept deliberately. Slicing from `pos` as well would let
+// `^` match mid-document and would hide the preceding character from `\b` and
+// from lookbehind, and Python's `pos` does neither of those things.
+//
+// `slice(0, stop)` is not a copy in V8 for subjects of any size worth bounding;
+// it produces a sliced string over the same backing store.
 function searchBounded(entry, text, pos, stop) {
   const rx = entry.rxGlobal;
+  const subject = stop >= text.length ? text : text.slice(0, stop);
   rx.lastIndex = pos;
-  let m;
-  while ((m = rx.exec(text)) !== null) {
-    if (m.index >= stop) return null;
-    if (m.index + m[0].length <= stop) return m;
-    rx.lastIndex = m.index + 1;
-  }
-  return null;
+  const m = rx.exec(subject);
+  return m !== null && m.index < stop ? m : null;
 }
 
 function matchAt(entry, text, at) {

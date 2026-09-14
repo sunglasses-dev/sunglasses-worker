@@ -210,9 +210,56 @@ def convert(py_regex: str):
     if "s" not in flags:
         src = dot_to_not_newline(src)
 
+    # 8. UNICODE MODE, and the identity escapes it forbids. Python's
+    #    re.IGNORECASE folds across the whole Unicode equivalence set, so `k`
+    #    matches U+212A KELVIN SIGN, `s` matches U+017F LONG S and `ss` matches
+    #    U+1E9E. Plain JS `i` folds ASCII only, so ASTRA's case-equivalence
+    #    variant lost a finding in ALL SEVEN selected rules. The `u` flag turns
+    #    on Unicode simple case folding, which closes those, and it also makes
+    #    the regex step by code point instead of UTF-16 unit, which is the other
+    #    difference he recorded.
+    #
+    #    Python permits an identity escape on any punctuation; `u` permits it
+    #    only on syntax characters. `\'`, `\"` and `\#` are therefore rejected
+    #    outright, and `\-` is rejected outside a character class and allowed
+    #    inside one. The escape is redundant in every one of these cases, so it
+    #    is removed rather than the flag dropped. 59 of 1,574 entries carried
+    #    one, measured, not guessed.
+    src = _strip_forbidden_identity_escapes(src)
     # Engine always scans case-insensitively (engine.py re.IGNORECASE).
     flags.add("i")
+    flags.add("u")
     return src, "".join(sorted(flags))
+
+
+def _strip_forbidden_identity_escapes(src: str) -> str:
+    """Drop the backslashes `u` mode rejects, leaving the character itself.
+
+    Character-class awareness matters for `-` alone: inside a class a backslash
+    hyphen is a legal ClassEscape meaning a literal hyphen, and unescaping it
+    there would turn it into a range operator and silently change the pattern.
+    """
+    out = []
+    in_class = False
+    i = 0
+    while i < len(src):
+        ch = src[i]
+        if ch == "\\" and i + 1 < len(src):
+            nxt = src[i + 1]
+            if nxt in "'\"#" or (nxt == "-" and not in_class):
+                out.append(nxt)
+            else:
+                out.append(ch)
+                out.append(nxt)
+            i += 2
+            continue
+        if ch == "[":
+            in_class = True
+        elif ch == "]":
+            in_class = False
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def node_validate(batch):
