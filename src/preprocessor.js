@@ -2,24 +2,26 @@
 // Stage order and semantics mirror the Python pipeline; known deltas are listed
 // in LIMITATIONS (exported for the /about payload).
 
+// THIS LIST IS OBSERVED CLASSES, NOT A PROOF THAT NO OTHER CLASS EXISTS.
+// ASTRA's round 3 did not reject the approximations; it rejected the claim that
+// what remains is completely and accurately constrained. Four corpus ID deltas
+// in 13,028 full-engine pairs is not output equality, and grouping the rest by
+// mechanism is a description of what has been observed rather than a bound on
+// what is left. Each entry below states its REACH, meaning the count of rules a
+// difference can touch, never the count it is known to change.
 export const LIMITATIONS = [
-  "HTML named entity decoding covers the common set; Python decodes the full HTML5 named set. Numeric references agree on the ordinary and invalid-codepoint range including an omitted semicolon, with one known difference. A reference of several hundred digits stays encoded here and becomes U+FFFD in Python",
-  "Python str.isprintable() is approximated for base64 segment screening",
-  // ONE LINE, and it says the size of the thing. The previous wording paired
-  // `\w` with `\b` and called the homoglyph pass a near closure of both. `\w`
-  // is Unicode aware here now, so only the boundary is left.
-  //
-  // 962, NOT 924. The earlier number counted each rule's CORE regex source and
-  // never walked the `guards` array that `compile_patterns.py` splits a
-  // lookahead-led or caret-led predicate into. 38 rules carry their boundary
-  // only inside a guard, and guards execute like any other matcher. 913 cores
-  // plus 11 mechanisms is exactly the 924 that was advertised, which is how the
-  // undercount was traced. 951 cores-or-guards plus 11 mechanisms is 962.
-  // Understating a limitation is the wrong direction for a disclosure.
-  "JS word boundaries are ASCII; 962 of 1,557 rules use one in a core or a guard, so a match can differ where a non-ASCII letter sits next to a boundary. Python's \\w equivalent is ported and is unicode aware, with one over-match: under case-insensitive matching the emitted class also admits U+0345, a combining character Python's \\w excludes",
-  "Regex offsets are UTF-16 units here and code points in Python, so windows, negation ranges and excerpts can differ around astral characters even though matching itself is code-point aware",
+  "Scope. Four rule-identity differences remain across the whole 13,028 pair corpus and all four are the ASCII word boundary case below. That is not output equality. 36 pairs still differ in the excerpt they return, and the classes listed here are the ones that have been observed rather than a proof that no other exists",
+  "ASCII word boundaries. 962 of 1,557 rules use a word boundary in a core or a guard, so a match can differ where a non-ASCII letter sits next to one. This is the reach of the difference rather than the count it changes, and it is where all four known corpus differences are",
+  "Word class membership. The emitted class admits 4,658 code points Python's own does not, of which 4,657 are unassigned in the Python this was measured against and one, U+0345, is assigned. Under case-insensitive matching the positive class matches it where Python does not, and the NEGATED class fails to match it where Python does, so this can miss a finding as well as add one. Saying it can only over-match would be wrong. Reach is 380 rules",
+  "ASCII letter ranges. A literal A to Z or a to z range does not carry Python's case folding for U+0130 and U+0131, which can turn a block into an allow. Enumerating individual letters does not close a range. Reach is 133 rules",
+  "Decimal digit shorthands. The digit class here misses 750 code points Python treats as digits, which can turn a block into an allow. Reach is 37 rules",
+  "Unicode version skew. 28 case-fold mappings differ between this runtime and the pip scanner's Python, all of them unassigned in the older version. Folding feeds anchors and prefilter presence checks, so the skew is not confined to matching. Neither engine is wrong, they were built against different Unicode versions",
+  "Regex offsets are UTF-16 units here and code points in Python, so windows, negation ranges, corroboration and excerpts can differ around astral characters even though matching itself is code-point aware. Reach includes 13 anchored entries, 38 windowed entries and 781 guarded cores",
+  "Whitespace normalization. Six edge-trimming cases differ at U+001C through U+001F, U+0085 and U+FEFF",
+  "HTML decoding. The named set covers the common names and Python decodes the full HTML5 set. Within the ported table this runtime also lowercases every candidate, permits an omitted semicolon for every entry, reads inherited object properties and maps one canonical name to U+007E where Python returns U+02DC. Numeric references agree across the ordinary and invalid-codepoint range including an omitted semicolon, with one known difference. A reference of several hundred digits stays encoded here and becomes U+FFFD in Python",
+  "Percent decoding. A string carrying an unpaired surrogate is accepted by this API with status 200 and becomes U+FFFD here where Python preserves it. Ordinary, astral and leading-BOM inputs agree",
+  "Base64 segment screening. Python str.isprintable() is approximated, a leading BOM is handled differently and a valid U+FFFD inside a decoded segment is stripped here",
   "The scanner 0.5.8 bounded-search protection for long single-word documents is ported; a 27,000 character document that previously exhausted the CPU limit now completes in under a fifth of a second. 30 scans per minute per IP still applies",
-  "Unicode version skew between this runtime and the pip scanner's Python: 28 case-fold mappings and 4,657 word characters differ, all of them assigned in the newer Unicode. Neither engine is wrong; they were built against different versions",
 ];
 
 const HOMOGLYPHS = {

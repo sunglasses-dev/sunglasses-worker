@@ -68,13 +68,19 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   core regex sources only and missed 38 rules whose boundary sits inside a
   split-out guard, and guards execute like any other matcher.
 
-- **One word-class over-match, OPEN and exactly one character.** Under the real
-  flags the emitted class admits 4,658 code points Python's `\w` does not, and
-  4,657 of those are Unicode version skew. The remaining one is U+0345, an
-  already assigned combining character that case-insensitive matching folds into
-  the class. Expressing the exclusion needs the `v` flag's set subtraction,
-  which 862 of 1,574 compiled entries do not currently accept, so this is
-  constrained and disclosed rather than repaired. It can only over-match.
+- **One word-class difference, OPEN and exactly one character, in BOTH
+  directions.** Under the real flags the emitted class admits 4,658 code points
+  Python's `\w` does not, and 4,657 of those are Unicode version skew. The
+  remaining one is U+0345, an already assigned combining character that
+  case-insensitive matching folds into the class. Expressing the exclusion needs
+  the `v` flag's set subtraction, which 862 of 1,574 compiled entries do not
+  currently accept, so this is constrained and disclosed rather than repaired.
+
+  It does NOT only over-match, and the earlier wording here said it did. The
+  positive class matches U+0345 where Python's `\w` does not, which can add a
+  finding. The NEGATED class fails to match it where Python's `\W` does, which
+  can drop one. Measured directly under `iu` in both directions. A miss is the
+  dangerous half and the old sentence hid it.
 
 - **UTF-16 offsets, OPEN.** The `u` flag makes matching step by code point; it
   does not change JavaScript string lengths or indices. Windowed matching,
@@ -99,7 +105,7 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   six API siblings, from one character. Our own gates did not catch it; his
   corpus did.
 
-- **Percent decoding, CLOSED 2026-09-14 after two rounds.** The port decoded
+- **Percent decoding, NARROWED 2026-09-14 after three rounds.** The port decoded
   each contiguous escape run and, when a run held invalid UTF-8, left the whole
   run encoded, so one bad byte hid every valid encoded word after it. It collects
   bytes and does one replacing decode now, which is what Python's `unquote` does.
@@ -107,13 +113,27 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   The first version of that repair walked UTF-16 units, so a literal astral
   character beside an escape was encoded as two lone surrogates and came back as
   two replacement characters, and `TextDecoder` silently ate a decoded leading
-  BOM. Both were ASTRA's neutral controls, both now match Python exactly.
+  BOM. Both were ASTRA's neutral controls and both now agree with Python.
 
-- **Case equivalence, CLOSED 2026-09-14.** Enumerated across every ASCII letter,
-  digit and underscore against all 1,112,064 scalars: the entire difference was
-  `i` also matching U+0130 and U+0131. The compiler widens a literal `i` to that
-  class and the regexes carry the `u` flag, which also gives code point stepping
-  rather than UTF-16 units.
+  NARROWED rather than closed, round 3. Ordinary, astral and leading-BOM inputs
+  agree. A string carrying an UNPAIRED SURROGATE still differs, becoming U+FFFD
+  here where Python preserves it, and this API accepts such a request with
+  status 200. It is outside scalar Unicode but inside the accepted input
+  contract, so either the contract narrows or the decoder changes. Calling it
+  closed while the handler still accepts the input was the overstatement.
+
+- **Case equivalence, LITERALS CLOSED and RANGES OPEN, 2026-09-14.** Enumerated
+  across every ASCII letter, digit and underscore against all 1,112,064 scalars:
+  the entire difference was `i` also matching U+0130 and U+0131. The compiler
+  widens a literal `i` to that class and the regexes carry the `u` flag, which
+  also gives code point stepping rather than UTF-16 units.
+
+  That closes LITERALS only. A widening pass rewrites a literal; it cannot
+  rewrite a RANGE, so `[a-z]` and `[A-Z]` stay narrow here while Python's match
+  U+0130 and U+0131 under case-insensitive matching. Measured in both engines
+  directly. That drops a match Python makes, turning a block into an allow, and
+  133 rules across 140 compiled entries carry such a range. Enumerating literals
+  does not close a range, and the earlier CLOSED read as though it had.
 
 - **Whitespace classes, NARROWED 2026-09-14.** Enumerated in both directions:
   Python also matches U+001C to U+001F and U+0085, JavaScript also matches
@@ -128,7 +148,15 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   The cost is one rule in both engines. This is a real gap and it is not the
   #157 shape, which is ported and fixed.
 
-- **`str.isprintable()`** is approximated for base64-segment screening.
+- **Decimal digit shorthands, OPEN.** The digit class here misses 750 code
+  points Python counts as digits, which drops a match Python makes and turns a
+  block into an allow. 37 rules across 41 compiled entries use a digit shorthand
+  or its complement.
+- **Base64 segment screening, OPEN in three ways.** `str.isprintable()` is
+  approximated, which is the long-standing and disclosed part. Beyond it a
+  leading BOM is handled differently and a VALID U+FFFD inside a decoded segment
+  is stripped here, and neither of those is the same limitation as the
+  approximation.
 - **100KB request cap** (Workers CPU guard). The pip scanner's own default is
   `MAX_SCAN_BYTES = 1024 * 1024`, applied to the input's length, so "no cap" was
   wrong. It is a different and larger cap, and it is configurable.

@@ -92,8 +92,9 @@ def main() -> int:
     readme = (ROOT / "README.md").read_text()
 
     failures = []
-    claim = re.search(r"(\d[\d,]*) of ([\d,]*\d) rules use one in a core or a guard",
-                      about)
+    claim = re.search(
+        r"(\d[\d,]*) of ([\d,]*\d) rules use a word boundary in a core or a guard",
+        about)
     if not claim:
         failures.append("src/preprocessor.js no longer states the boundary reach "
                         "in the form this gate reads. A disclosure this gate "
