@@ -1,0 +1,68 @@
+{
+ "pairs": 672,
+ "verdict_fail": [
+  [
+   "C02706|api_response",
+   "block",
+   "allow"
+  ],
+  [
+   "C02706|log_memory",
+   "block",
+   "allow"
+  ],
+  [
+   "C02707|api_response",
+   "block",
+   "allow"
+  ],
+  [
+   "C02707|log_memory",
+   "block",
+   "allow"
+  ]
+ ],
+ "id_delta": [
+  [
+   "C02706|api_response",
+   [
+    "GLS-PI-016-API"
+   ],
+   []
+  ],
+  [
+   "C02706|log_memory",
+   [
+    "GLS-PI-016-API"
+   ],
+   []
+  ],
+  [
+   "C02707|api_response",
+   [
+    "GLS-PI-016-API"
+   ],
+   []
+  ],
+  [
+   "C02707|log_memory",
+   [
+    "GLS-PI-016-API"
+   ],
+   []
+  ]
+ ],
+ "slow_in_js_only": [
+  [
+   "C01688|message",
+   8.23,
+   4.52
+  ],
+  [
+   "C01688|file",
+   8.45,
+   4.65
+  ]
+ ],
+ "slow_in_both": []
+}

@@ -2,12 +2,26 @@
 // Stage order and semantics mirror the Python pipeline; known deltas are listed
 // in LIMITATIONS (exported for the /about payload).
 
+// THIS LIST IS OBSERVED CLASSES, NOT A PROOF THAT NO OTHER CLASS EXISTS.
+// ASTRA's round 3 did not reject the approximations; it rejected the claim that
+// what remains is completely and accurately constrained. Four corpus ID deltas
+// in 13,028 full-engine pairs is not output equality, and grouping the rest by
+// mechanism is a description of what has been observed rather than a bound on
+// what is left. Each entry below states its REACH, meaning the count of rules a
+// difference can touch, never the count it is known to change.
 export const LIMITATIONS = [
-  "HTML entity decoding covers numeric + common named entities (Python decodes the full HTML5 named set)",
-  "Python str.isprintable() is approximated for base64 segment screening",
-  "JS \\w and \\b are ASCII-only; Python's match unicode letters (the pip scanner also normalizes homoglyphs first, which closes most of that gap)",
-  "This demo runs the scanner 0.5.2 pattern set, behind the pip release; two pattern fields added since (match_on normalized, anchor_terms) are not ported yet, so a small number of rules fire in pip and not here",
-  "No bounded search yet (the scanner 0.5.8 fix for GLS-MCP-POISON-201 and long single-word documents); a pathological input can hit the Workers CPU limit and return an error instead of a verdict; 30 scans per minute per IP",
+  "Scope. Four rule-identity differences remain across the whole 13,028 pair corpus and all four are the ASCII word boundary case below. That is not output equality. 36 pairs still differ in the excerpt they return, and the classes listed here are the ones that have been observed rather than a proof that no other exists",
+  "ASCII word boundaries. 962 of 1,557 rules use a word boundary in a core or a guard, so a match can differ where a non-ASCII letter sits next to one. This is the reach of the difference rather than the count it changes, and it is where all four known corpus differences are",
+  "Word class membership. The emitted class admits 4,658 code points Python's own does not, of which 4,657 are unassigned in the Python this was measured against and one, U+0345, is assigned. Under case-insensitive matching the positive class matches it where Python does not, and the NEGATED class fails to match it where Python does, so this can miss a finding as well as add one. Saying it can only over-match would be wrong. Reach is 386 rules across 390 compiled entries, being 380 carrier rules in 381 entries plus 6 mechanism rules in 9 entries",
+  "ASCII letter ranges. A literal A to Z or a to z range does not carry Python's case folding for U+0130 and U+0131, which can turn a block into an allow. Enumerating individual letters does not close a range. Reach is 133 rules",
+  "Decimal digit shorthands. The digit class here misses 750 code points Python treats as digits, which can turn a block into an allow. Reach is 37 rules",
+  "Unicode version skew. 28 case-fold mappings differ between this runtime and the pip scanner's Python, all of them unassigned in the older version. Folding feeds anchors and prefilter presence checks, so the skew is not confined to matching. Neither engine is wrong, they were built against different Unicode versions",
+  "Regex offsets are UTF-16 units here and code points in Python, so windows, negation ranges, corroboration and excerpts can differ around astral characters even though matching itself is code-point aware. Reach includes 13 anchored entries, 38 windowed entries and 781 guarded cores",
+  "Whitespace normalization. Six edge-trimming cases differ at U+001C through U+001F, U+0085 and U+FEFF",
+  "HTML decoding. The named set covers the common names and Python decodes the full HTML5 set. Within the ported table this runtime also lowercases every candidate, permits an omitted semicolon for every entry, reads inherited object properties and maps one canonical name to U+007E where Python returns U+02DC. Numeric references agree across the ordinary and invalid-codepoint range including an omitted semicolon, with one known difference. A reference of several hundred digits stays encoded here and becomes U+FFFD in Python",
+  "Percent decoding. A string carrying an unpaired surrogate is accepted by this API with status 200 and becomes U+FFFD here where Python preserves it. Ordinary, astral and leading-BOM inputs agree",
+  "Base64 segment screening. Python str.isprintable() is approximated, a leading BOM is handled differently and a valid U+FFFD inside a decoded segment is stripped here",
+  "The scanner 0.5.8 bounded-search protection for long single-word documents is ported; a 27,000 character document that previously exhausted the CPU limit now completes in under a fifth of a second. 30 scans per minute per IP still applies",
 ];
 
 const HOMOGLYPHS = {
@@ -80,36 +94,111 @@ export function decodeLeetspeak(text) {
   return out;
 }
 
+// Python's whitespace set, which is not JavaScript's. Python also matches the
+// four ASCII separators U+001C to U+001F and U+0085 NEXT LINE; JavaScript also
+// matches U+FEFF, which Python does not. The compiled patterns are rewritten to
+// this set by the compiler, and THIS FILE'S OWN regexes need it just as much:
+// `stripDelimiterPadding` splits on runs of whitespace, so a gap made of U+001C
+// separated two words in Python and joined them here, and ASTRA's `gap_U1C_*`
+// fixtures lost GLS-PI-017-API on exactly that.
+const PY_WS = "[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028-\u2029\u202f\u205f\u3000]";
+const PY_WS_RUN = new RegExp("(" + PY_WS + "{2,})");
+const PY_WS_ONLY = new RegExp("^" + PY_WS + "+$");
+
 export function collapseWhitespace(text) {
   return text.replace(/[\t\r\x0b\x0c]+/g, " ").replace(/ {2,}/g, " ").trim();
 }
 
+// Python's html module tables, extracted from the interpreter rather than
+// retyped. `_invalid_charrefs` remaps the Windows-1252 range the way the
+// HTML5 parser does, and `_invalid_codepoints` are dropped entirely.
+const INVALID_CHARREFS = new Map(Object.entries({"0": "�", "13": "\r", "128": "€", "129": "", "130": "‚", "131": "ƒ", "132": "„", "133": "…", "134": "†", "135": "‡", "136": "ˆ", "137": "‰", "138": "Š", "139": "‹", "140": "Œ", "141": "", "142": "Ž", "143": "", "144": "", "145": "‘", "146": "’", "147": "“", "148": "”", "149": "•", "150": "–", "151": "—", "152": "˜", "153": "™", "154": "š", "155": "›", "156": "œ", "157": "", "158": "ž", "159": "Ÿ"}).map(([k, v]) => [Number(k), v]));
+const INVALID_CODEPOINTS = new Set([1, 2, 3, 4, 5, 6, 7, 8, 11, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 64976, 64977, 64978, 64979, 64980, 64981, 64982, 64983, 64984, 64985, 64986, 64987, 64988, 64989, 64990, 64991, 64992, 64993, 64994, 64995, 64996, 64997, 64998, 64999, 65000, 65001, 65002, 65003, 65004, 65005, 65006, 65007, 65534, 65535, 131070, 131071, 196606, 196607, 262142, 262143, 327678, 327679, 393214, 393215, 458750, 458751, 524286, 524287, 589822, 589823, 655358, 655359, 720894, 720895, 786430, 786431, 851966, 851967, 917502, 917503, 983038, 983039, 1048574, 1048575, 1114110, 1114111]);
+
+// THE SEMICOLON IS OPTIONAL, which is the whole of ASTRA's C01978 finding. This
+// required one, so `&#65` stayed literal here and decoded to `A` in Python, and
+// a payload written without semicolons was invisible to the port. The pattern
+// and the decision order below are Python's `html.unescape`, transcribed:
+//   &(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)
+// Named references still resolve against the subset this port carries, and that
+// subset remains a documented delta. The numeric form, its optional semicolon and
+// its invalid code point handling agree with Python across the ordinary range.
+//
+// ONE NUMERIC DELTA REMAINS and it is not closed. A reference of several hundred
+// digits overflows and is left encoded here where Python returns U+FFFD.
+// `Number.isFinite` returns the original reference below rather than a
+// replacement character. Saying the numeric form is no longer a delta, which is
+// what this comment used to say, was false for that input.
 export function decodeHtmlEntities(text) {
   if (!text.includes("&")) return text;
-  return text.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g, (m, body) => {
+  return text.replace(/&(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)/g, (m, body) => {
     if (body[0] === "#") {
       const hex = body[1] === "x" || body[1] === "X";
-      const code = parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
-      if (Number.isFinite(code) && code >= 0 && code <= 0x10ffff) {
-        try { return String.fromCodePoint(code); } catch { return m; }
-      }
-      return m;
+      const digits = body.slice(hex ? 2 : 1).replace(/;$/, "");
+      const code = parseInt(digits, hex ? 16 : 10);
+      if (!Number.isFinite(code)) return m;
+      if (INVALID_CHARREFS.has(code)) return INVALID_CHARREFS.get(code);
+      if ((code >= 0xd800 && code <= 0xdfff) || code > 0x10ffff) return "\uFFFD";
+      if (INVALID_CODEPOINTS.has(code)) return "";
+      return String.fromCodePoint(code);
     }
-    return NAMED_ENTITIES[body.toLowerCase()] ?? m;
+    // Longest named prefix wins and the remainder is kept, which is how
+    // `&notit;` becomes `\u00acit;` rather than staying whole.
+    //
+    // THE TERMINATING SEMICOLON IS PART OF THE NAME. Python's table is keyed
+    // with it, `quot;` as well as `quot`, and this table is keyed without it, so
+    // matching the stem and re-appending what followed turned every ordinary
+    // `&quot;` into a quote FOLLOWED BY A SEMICOLON. ASTRA measured the cost:
+    // 100 documents across 2 channels, 200 block-to-allow pairs on the six API
+    // siblings, from one character.
+    //
+    // I introduced this tonight while making the numeric form semicolon
+    // optional, and my own probe showed `&notit;` coming back undecoded. I read
+    // that as the documented named-subset delta, which it also is, and stopped.
+    // A wrong answer with a ready explanation is the easiest kind to keep.
+    for (let x = body.length; x > 0; x--) {
+      const slice = body.slice(0, x);
+      const key = slice.endsWith(";") ? slice.slice(0, -1) : slice;
+      const candidate = NAMED_ENTITIES[key.toLowerCase()];
+      if (candidate !== undefined) return candidate + body.slice(x);
+    }
+    return "&" + body;
   });
 }
 
+// BYTES, THEN ONE REPLACING DECODE, which is what Python's `unquote` does. The
+// fallback here decoded each contiguous escape run and, when a run held invalid
+// UTF-8, left THE WHOLE RUN encoded: ASTRA's C01982 puts an invalid byte in
+// front of valid encoded text, so everything after it stayed hidden from the
+// scanner while Python read it as U+FFFD followed by the real words. A decoder
+// that gives up on a run is a decoder an attacker can switch off with one byte.
 export function decodeUrlEncoding(text) {
   if (!text.includes("%")) return text;
   if (!/%[0-9A-Fa-f]{2}/.test(text)) return text;
-  // Python's unquote never throws on malformed input; decode leniently.
-  try {
-    return decodeURIComponent(text);
-  } catch {
-    return text.replace(/(?:%[0-9A-Fa-f]{2})+/g, (seq) => {
-      try { return decodeURIComponent(seq); } catch { return seq; }
-    });
+  const bytes = [];
+  const encoder = new TextEncoder();
+  for (let i = 0; i < text.length; ) {
+    if (text[i] === "%" && /^[0-9A-Fa-f]{2}$/.test(text.slice(i + 1, i + 3))) {
+      bytes.push(parseInt(text.slice(i + 1, i + 3), 16));
+      i += 3;
+      continue;
+    }
+    // BY CODE POINT, not by UTF-16 unit. `text[i]` is one unit, so a literal
+    // astral character was encoded as two lone surrogates and came back as two
+    // replacement characters: ASTRA's neutral control turns one emoji beside an
+    // escape into rubbish, where Python leaves it untouched. `codePointAt` plus
+    // the surrogate-aware step keeps the pair together.
+    const point = text.codePointAt(i);
+    const literal = String.fromCodePoint(point);
+    for (const b of encoder.encode(literal)) bytes.push(b);
+    i += literal.length;
   }
+  // `fatal: false` is the replacement behaviour of Python's errors="replace".
+  // `ignoreBOM: true` because TextDecoder otherwise EATS a leading U+FEFF, and
+  // Python's unquote does not: his encoded-BOM control decodes to a BOM
+  // followed by the text, and this returned the text alone.
+  return new TextDecoder("utf-8", { fatal: false, ignoreBOM: true })
+    .decode(new Uint8Array(bytes));
 }
 
 export function decodeHexEscapes(text) {
@@ -153,10 +242,10 @@ export function stripDelimiterPadding(text) {
     /\b([a-zA-Z])[.\-_]([a-zA-Z])(?:[.\-_][a-zA-Z])+\b/g,
     (m) => m.replace(/[.\-_]/g, ""),
   );
-  const parts = text.split(/(\s{2,})/);
+  const parts = text.split(PY_WS_RUN);
   const out = [];
   for (const part of parts) {
-    if (/^\s+$/.test(part) && part.length >= 2) {
+    if (PY_WS_ONLY.test(part) && part.length >= 2) {
       out.push(" ");
     } else {
       out.push(part.replace(/(?<!\w)(?:[a-zA-Z] ){2,}[a-zA-Z](?!\w)/g, (m) => m.replace(/ /g, "")));

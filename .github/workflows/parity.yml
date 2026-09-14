@@ -75,5 +75,7 @@ jobs:
       # The three questions only the serving runtime can answer: modifier-group
       # regexes construct, an unknown channel fails closed, an alias channel
       # reaches the canonical pattern set. Node-side gates cannot see any of it.
+      - name: Disclosure gate (the advertised boundary reach matches the artifact)
+        run: python3 disclosure_gate.py
       - name: workerd runtime probes
         run: python3 workerd_probe.py

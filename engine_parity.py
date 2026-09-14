@@ -14,7 +14,10 @@ import subprocess
 import sys
 import tempfile
 
-SCANNER = os.path.expanduser("~/sunglasses-dev/glasses")
+# Same override the other parity scripts use. Without it a release build that
+# compiled from a private checkout would still verify against the SHARED tree,
+# and a green gate would describe a different engine than the artifact it gates.
+SCANNER = os.environ.get("SUNGLASSES_SRC", os.path.expanduser("~/sunglasses-dev/glasses"))
 sys.path.insert(0, SCANNER)
 from sunglasses.engine import SunglassesEngine  # noqa: E402
 

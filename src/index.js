@@ -3,7 +3,7 @@
 // PRIVACY: payloads are scanned in-memory and discarded. Nothing is stored,
 // logged, or forwarded. No cookies, no analytics, no telemetry.
 import { scan, STATS, VALID_CHANNELS } from "./engine.js";
-import { PATTERNS_VERSION } from "./patterns.js";
+import { PATTERNS_VERSION, COMPILED_FROM } from "./patterns.js";
 import { LIMITATIONS } from "./preprocessor.js";
 import { parseGitHubUrl, fetchRawFile, AGENT_SURFACES, GITHUB_CAPS } from "./github.js";
 import { rollupRepo, TIER_B_IDS, TIER_S_SIGNATURE_IDS } from "./policy.js";
@@ -86,7 +86,7 @@ export default {
 
     if (path === "/scan" && request.method === "POST") {
       if (await rateLimited(request, env)) {
-        return json({ error: "Rate limit hit — the demo allows 30 scans/minute. The pip scanner has no limits: pip install sunglasses" }, 429);
+        return json({ error: "Rate limit hit. The demo allows 30 scans per minute. The pip scanner has no rate limit, and its default scan length limit is 1 MiB and configurable: pip install sunglasses" }, 429);
       }
       let body;
       try {
@@ -102,7 +102,7 @@ export default {
         return json({ error: "Field \"text\" (non-empty string) is required." }, 400);
       }
       if (new TextEncoder().encode(text).length > MAX_BYTES) {
-        return json({ error: `Demo cap is ${MAX_BYTES / 1000}KB per scan. The pip scanner has no cap: pip install sunglasses` }, 413);
+        return json({ error: `Demo request cap is ${MAX_BYTES / 1000}KB per scan. The pip scanner has no request cap, and its default scan length limit is 1 MiB and configurable: pip install sunglasses` }, 413);
       }
       const channel = body.channel === undefined || body.channel === null || body.channel === ""
         ? "message"
@@ -122,7 +122,7 @@ export default {
 
     if (path === "/scan-github" && request.method === "POST") {
       if (await rateLimited(request, env)) {
-        return json({ error: "Rate limit hit — the demo allows 30 scans/minute. The pip scanner has no limits: pip install sunglasses" }, 429);
+        return json({ error: "Rate limit hit. The demo allows 30 scans per minute. The pip scanner has no rate limit, and its default scan length limit is 1 MiB and configurable: pip install sunglasses" }, 429);
       }
       let body;
       try {
@@ -217,6 +217,11 @@ export default {
         // nothing could see the gap, because the only two places this string appeared
         // were a scan response body and a footer nobody reads.
         patterns_version: PATTERNS_VERSION,
+        // The scanner COMMIT this engine was compiled from, not just its version
+        // string. A version alone cannot tell a reader which tree produced the
+        // bytes, and the twelve days the demo spent on v0.5.2 while the site
+        // published v0.5.7 is what that costs.
+        compiled_from: COMPILED_FROM,
         patterns: STATS.patterns,
         keywords: STATS.keywords,
         privacy: "Payloads are scanned in-memory and discarded. Nothing is stored, logged, or forwarded.",
@@ -306,7 +311,7 @@ button:disabled{opacity:.5;cursor:wait}
   <div id="out"></div>
 
   <p class="privacy">
-    In-memory scan, discarded on response. No storage, no logging of payloads, no cookies, no telemetry. Demo cap 100KB — the real thing has none: <span class="mono">pip install sunglasses</span> · patterns v${PATTERNS_VERSION} · <a href="/about">engine notes</a> · <a href="https://sunglasses.dev">sunglasses.dev</a> · <a href="https://github.com/sunglasses-dev/sunglasses">GitHub</a>
+    In-memory scan, discarded on response. No storage, no logging of payloads, no cookies, no telemetry. Demo request cap 100KB, and the pip scanner's default scan length limit is 1 MiB and configurable: <span class="mono">pip install sunglasses</span> · patterns v${PATTERNS_VERSION} · <a href="/about">engine notes</a> · <a href="https://sunglasses.dev">sunglasses.dev</a> · <a href="https://github.com/sunglasses-dev/sunglasses">GitHub</a>
   </p>
 </div>
 <script>

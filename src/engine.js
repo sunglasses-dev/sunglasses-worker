@@ -87,7 +87,167 @@ function matchWindowed(rx, text) {
 // Port of engine.py _eval_regex (v0.3.3). "guarded" = caret-led predicate:
 // negation guards keep DOCUMENT scope (a defusing context anywhere in the file
 // defuses — the fastapi lesson), the positive core must co-occur in ONE window.
-function evalRegex(entry, text) {
+// ── ANCHORED MODE (port of engine.py _match_anchored, landed scanner-side in
+// #155) ─────────────────────────────────────────────────────────────────────
+// A rule declares the rare token its match cannot happen without, and only the
+// text around that token is searched. Ported because the Worker was missing it
+// outright: GLS-PI-INFO-API, a HIGH prompt_injection rule, was found by Python
+// and not here, and both engines' regexes agree that neither of that rule's two
+// regexes matches the document. Python reports it through this lane. A port
+// that stops at the regexes is a port of the wrong half.
+//
+// The fold table, the anchor terms, the span and the decision about whether a
+// rule may use this mode at all are computed by the ENGINE'S OWN code at
+// compile time and handed over in patterns.js. The span needs Python's regex
+// parser and cannot be derived here; re-implementing a rule about where a match
+// may be would be a second place for it to be wrong.
+
+// engine.py folds through `_prefilter.fold`: translate, THEN lower. Four
+// entries, because lowering first splits U+0130 into two codepoints and the
+// table is meant to collapse it.
+const CASEFOLD = new Map([[0x130, "i"], [0x131, "i"], [0x212a, "k"], [0x17f, "s"]]);
+
+function fold(text) {
+  let out = "";
+  for (const ch of text) out += CASEFOLD.get(ch.codePointAt(0)) ?? ch;
+  return out.toLowerCase();
+}
+
+function matchAnchored(entry, text) {
+  const { anchors, span } = entry;
+  const length = text.length;
+  const folded = fold(text);
+  // A position found in a differently sized string points somewhere else in the
+  // document. engine.py searches everything rather than guess; so does this.
+  if (folded.length !== length) return searchBounded(entry, text, 0, length);
+
+  // A document can be MADE of the anchor, and then the merged windows cover it
+  // and anchoring saves nothing. Stop as soon as that is known: the threshold is
+  // one more than the number of non-overlapping windows of width `span` that fit.
+  const budget = Math.floor(length / Math.max(span, 1)) + 1;
+  const spots = [];
+  for (const term of anchors) {
+    let at = folded.indexOf(term);
+    while (at !== -1) {
+      spots.push(at);
+      if (spots.length > budget) return searchBounded(entry, text, 0, length);
+      at = folded.indexOf(term, at + 1);
+    }
+  }
+  if (spots.length === 0) return null;       // the rule cannot match this document
+
+  // A match containing the anchor at `p` must START in [p - span, p]. Windows
+  // are ranges of START positions, merged where they touch.
+  spots.sort((a, b) => a - b);
+  const windows = [];
+  let lo = Math.max(0, spots[0] - span);
+  let hi = spots[0];
+  for (const at of spots.slice(1)) {
+    if (at - span <= hi) hi = at;
+    else { windows.push([lo, hi]); lo = Math.max(0, at - span); hi = at; }
+  }
+  windows.push([lo, hi]);
+
+  for (const [wlo, whi] of windows) {
+    // `+ 1`: a word-boundary operator is answered from the character on each
+    // side, and the stop is a wall the regex reads as end of string.
+    const stop = Math.min(length, whi + span + 1);
+    let pos = wlo;
+    while (pos <= whi) {
+      const m = searchBounded(entry, text, pos, stop);
+      if (m === null || m.index > whi) break;
+      // The stop is an invented end of string. Re-run the match from the same
+      // position against the WHOLE document, so what comes back is a match the
+      // document really contains.
+      const confirmed = matchAt(entry, text, m.index);
+      if (confirmed !== null) return confirmed;
+      pos = m.index + 1;
+    }
+  }
+  return null;
+}
+
+// `rx.search(text, pos, endpos)`, which JavaScript has no direct form of. The
+// end is imposed by TRUNCATING THE SUBJECT, so the regex engine backtracks
+// inside the window and can settle on a shorter alternative that fits.
+//
+// The previous version searched the whole document, rejected any result that
+// ran past the bound and advanced the start by one. That is not the same
+// operation: a pattern whose greedy branch overshoots has a shorter branch that
+// Python finds and this discarded, and the later full-document confirmation
+// cannot recover a candidate that was never produced. ASTRA's neutral control
+// is the minimal case, an unbounded expression with declared span 10 over a
+// 105 character subject: Python returns [0, 105] and this returned no match.
+//
+// The left context is kept deliberately. Slicing from `pos` as well would let
+// `^` match mid-document and would hide the preceding character from `\b` and
+// from lookbehind, and Python's `pos` does neither of those things.
+//
+// `slice(0, stop)` is not a copy in V8 for subjects of any size worth bounding;
+// it produces a sliced string over the same backing store.
+function searchBounded(entry, text, pos, stop) {
+  const rx = entry.rxGlobal;
+  const subject = stop >= text.length ? text : text.slice(0, stop);
+  rx.lastIndex = pos;
+  const m = rx.exec(subject);
+  return m !== null && m.index < stop ? m : null;
+}
+
+function matchAt(entry, text, at) {
+  const rx = entry.rxSticky;
+  rx.lastIndex = at;
+  return rx.exec(text);
+}
+
+// THE LITERAL PREFILTER, whose derivation lives in the compiler because it needs
+// Python's regex parser. Each entry arrives with a CNF requirement: an AND of
+// clauses, each an OR of folded ASCII literals at least four characters long. A
+// document missing every literal of any one clause cannot match that regex, so
+// the regex does not run.
+//
+// ASTRA measured the cost of not having it. The exact #157 document, 27,000
+// characters of one long word, completes in Python and took 100 seconds here,
+// because every expensive pattern was run against every one of those
+// characters. This is the "regex literal prefilter" his review records as
+// absent, ported as a skip test rather than as a second parser.
+//
+// SOUNDNESS COMES FROM THE DERIVATION, not from this function. A clause is
+// implied by the match, so skipping when it is absent cannot lose a finding.
+// An entry with no requirement is always run.
+function canSkip(entry, folded, pages) {
+  const requires = entry.requires;
+  if (!requires || requires.length === 0) return false;
+  for (const clause of requires) {
+    let present = false;
+    for (const literal of clause.lits) {
+      if (folded.includes(literal)) { present = true; break; }
+    }
+    // A CLASS BRANCH REQUIRES A CHARACTER, not a literal, and this is the half
+    // that answers #157: a bare class under `+` carries no literal, so a clause
+    // holding one could never be skipped and the whole regex ran on every
+    // document. Pages OVERLAP is deliberately conservative, it means a
+    // character MIGHT be present, which is the only safe direction for a skip.
+    if (!present && clause.pages.length) {
+      for (const page of clause.pages) {
+        if (pages.has(page)) { present = true; break; }
+      }
+    }
+    if (!present) return true;
+  }
+  return false;
+}
+
+const PAGE_SHIFT = 8;
+
+function pagesOf(text) {
+  const pages = new Set();
+  for (const ch of text) pages.add(ch.codePointAt(0) >> PAGE_SHIFT);
+  return pages;
+}
+
+function evalRegex(entry, text, folded, pages) {
+  if (folded !== undefined && canSkip(entry, folded, pages)) return null;
+  if (entry.mode === "anchored") return matchAnchored(entry, text);
   if (entry.mode === "guarded") {
     for (const g of entry.guards) {
       g.lastIndex = 0;
@@ -152,12 +312,28 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
         // Predicates (windowed/guarded cores + doc-wide guards) run at position
         // 0 via sticky flag (mirrors Python .match) — the ReDoS guard from
         // engine.py. Plain regexes keep ordinary exec (Python .search).
-        const sticky = r.mode !== "plain";
-        compiled.push({
+        const sticky = r.mode !== "plain" && r.mode !== "anchored";
+        const entry = {
           mode: r.mode,
           rx: new RegExp(r.source, r.flags + (sticky ? "y" : "")),
           guards: (r.guards || []).map((g) => new RegExp(g.source, g.flags + "y")),
-        });
+          // CARRIED THROUGH. The compiler derives this and the index dropped it,
+          // so every entry arrived with no requirement and the prefilter skipped
+          // nothing at all. Silent, because a prefilter that never fires is
+          // indistinguishable from one that has nothing to skip.
+          requires: r.requires,
+        };
+        if (r.mode === "anchored") {
+          // TWO compiled forms, because the Python lane makes two different
+          // calls: a bounded `search` and, on a candidate, an anchored `match`
+          // against the whole document. `g` gives the first a movable start,
+          // `y` gives the second Python's `.match(text, pos)` exactly.
+          entry.rxGlobal = new RegExp(r.source, r.flags + "g");
+          entry.rxSticky = new RegExp(r.source, r.flags + "y");
+          entry.anchors = r.anchors || [];
+          entry.span = Math.max(r.span || 1, 1);
+        }
+        compiled.push(entry);
       } catch {
         // Validated at compile time — but only for the Node that ran the
         // compiler. A runtime with an older V8 (e.g. `(?i:` modifier groups
@@ -317,28 +493,60 @@ export function scan(text, channel = "message") {
     }
   }
 
-  // Lane 2 — regexes on RAW text (same as engine.py step 3).
+  // Lane 2 — regexes on RAW text, then on the NORMALIZED view for a pattern that
+  // asks for it (same as engine.py step 3).
+  //
+  // THE SECOND SUBJECT WAS MISSING. engine.py builds `subjects = [raw]` and
+  // appends the normalized view when the pattern declares
+  // `match_on: "normalized"`, at ANY document length — it is a property of the
+  // rule, not of the corroboration pass, which is separately length gated.
+  // Three of the shipped rules declare it and this lane tested them on raw text
+  // only, which is the whole of the wide-parity delta: GLS-PI-INFO-API is found
+  // by Python on the normalized view of a document whose raw text neither of
+  // its regexes matches.
+  //
+  // Raw stays FIRST and decides. engine.py's own note: replacing raw with
+  // normalized lost four detections whose filler was U+2028/U+2029, where the
+  // raw text matched and the folded text did not, so a flag meant to add reach
+  // removed some. Normalized is a second look, never a substitute, and the
+  // negation check runs against whichever subject matched.
+  const foldCache = new Map();
   for (const { pattern, compiled } of regexPatterns) {
     if (!channelHit(pattern)) continue;
     if (seen.has(pattern.id)) continue;
-    for (const entry of compiled) {
-      const m = evalRegex(entry, text);
-      if (m) {
-        seen.add(pattern.id);
-        // NOTE: for windowed matches m.index is slice-relative — Python has the
-        // IDENTICAL behavior (match.start() is window-relative in _match_windowed
-        // results). Do NOT "fix" by adding the window offset; parity depends on
-        // mirroring engine.py exactly.
-        const negated = !pattern.negation_immune && checkNegation(text, m.index);
-        // Mechanisms only, and only when negation did not already fire — mirrors
-        // the if/elif ordering in engine.py.
-        const defensive =
-          !negated &&
-          pattern.id.startsWith("GLS-MECH-") &&
-          isDefensivelyFramed(text, m.index);
-        findings.push(makeFinding(pattern, m[0].slice(0, 50), negated, defensive));
-        break;
+    const subjects = pattern.match_on === "normalized" ? [text, normalized] : [text];
+    let decided = false;
+    for (const subject of subjects) {
+      // Folded ONCE per subject and reused for every entry of this pattern, the
+      // way Python folds the document once for the whole index. Folding per
+      // entry would hand the cost straight back.
+      let view = foldCache.get(subject);
+      if (view === undefined) {
+        const foldedSubject = fold(subject);
+        view = { folded: foldedSubject, pages: pagesOf(foldedSubject) };
+        foldCache.set(subject, view);
       }
+      for (const entry of compiled) {
+        const m = evalRegex(entry, subject, view.folded, view.pages);
+        if (m) {
+          seen.add(pattern.id);
+          // NOTE: for windowed matches m.index is slice-relative — Python has the
+          // IDENTICAL behavior (match.start() is window-relative in _match_windowed
+          // results). Do NOT "fix" by adding the window offset; parity depends on
+          // mirroring engine.py exactly.
+          const negated = !pattern.negation_immune && checkNegation(subject, m.index);
+          // Mechanisms only, and only when negation did not already fire — mirrors
+          // the if/elif ordering in engine.py.
+          const defensive =
+            !negated &&
+            pattern.id.startsWith("GLS-MECH-") &&
+            isDefensivelyFramed(text, m.index);
+          findings.push(makeFinding(pattern, m[0].slice(0, 50), negated, defensive));
+          decided = true;
+          break;
+        }
+      }
+      if (decided) break;        // raw decided; do not look at the normalized view
     }
   }
 

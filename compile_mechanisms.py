@@ -11,10 +11,16 @@ run engine_parity.py and require 0 disagreements.
 """
 import json
 import subprocess
+import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path.home() / "sunglasses-dev" / "glasses"))
+# Same override as compile_patterns.py, and for the same reason: both compilers
+# must read the SAME checkout, or the two emitted files describe different
+# engines and nothing downstream can tell.
+_SCANNER_ROOT = os.path.abspath(os.environ.get(
+    "SG_SCANNER_ROOT", str(Path.home() / "sunglasses-dev" / "glasses")))
+sys.path.insert(0, _SCANNER_ROOT)
 
 from sunglasses.mechanisms import MECHANISM_PATTERNS  # noqa: E402
 from sunglasses.engine import SunglassesEngine  # noqa: E402
