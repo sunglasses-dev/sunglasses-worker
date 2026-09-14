@@ -37,5 +37,22 @@ for v in vfail[:15]: print(f"  ❌ {v[0]}: py={v[1]} js={v[2]}")
 print(f"finding-set deltas: {len(dfail)}")
 for d in dfail[:15]: print(f"  ⚠️ {d[0]}: only-py={d[1]} only-js={d[2]}")
 json.dump({"verdict_fail": vfail, "id_delta": dfail}, open(os.path.join(OUT,"wide_parity_report.json"),"w"), indent=1)
-print("\n🟢 WIDE PARITY PASS" if not vfail else f"\n🔴 WIDE PARITY FAIL ({len(vfail)} verdict splits)")
+# FAILS ON ANY DELTA, not on verdict splits alone. This printed a green PASS
+# while carrying two finding-set deltas on GLS-PI-INFO-API, a HIGH severity
+# prompt_injection rule the JS port was missing entirely, because both engines
+# still reached `block` on other rules. A verdict that agrees by accident is not
+# parity: the whole point of a differential is that the two engines find the
+# SAME THINGS, and a rule that goes missing in the port is exactly what this
+# gate exists to catch. `dfail` was computed, printed, and then not acted on.
+ok = not vfail and not dfail
+if ok:
+    print("\n🟢 WIDE PARITY PASS")
+else:
+    parts = []
+    if vfail:
+        parts.append(f"{len(vfail)} verdict split(s)")
+    if dfail:
+        parts.append(f"{len(dfail)} finding-set delta(s)")
+    print(f"\n🔴 WIDE PARITY FAIL ({', '.join(parts)})")
+sys.exit(0 if ok else 1)
 sys.exit(0 if not vfail else 1)
