@@ -112,11 +112,27 @@ EMIT_V="$(grep -o 'PATTERNS_VERSION = "[^"]*"' src/patterns.js | cut -d'"' -f2)"
 EMIT_C="$(grep -o 'COMPILED_FROM = "[^"]*"' src/patterns.js | cut -d'"' -f2)"
 [ "$EMIT_V" = "$EXPECTED_VERSION" ] \
   || die "the build emitted PATTERNS_VERSION ${EMIT_V}, expected ${EXPECTED_VERSION}"
-case "$TAG_SHA" in
-  "${EMIT_C}"*) ;;
-  *) die "the build emitted COMPILED_FROM ${EMIT_C}, which is not a prefix of ${TAG_SHA}" ;;
-esac
-ok "emitted stamp is ${EMIT_V} from ${EMIT_C}"
+# EXACT, NOT A PREFIX. This was `case "$TAG_SHA" in "${EMIT_C}"*)`, which asks
+# whether the emitted stamp is a PREFIX of the expected sha. An empty stamp is a
+# prefix of everything, and so is a single character, so a build that emitted
+# nothing at all passed and printed READY. ASTRA found it; reproduced before the
+# fix: '' accepted, 'b' accepted.
+#
+# Recognising a resemblance is not recognising the value. The stamp now has to
+# equal the abbreviation the PRIVATE checkout produces for itself, be non-empty,
+# and resolve back through git to exactly TAG_SHA. Three conditions because the
+# first two are about the string and the third is about what it names.
+EXPECTED_ABBREV="$(git -C "$PRIVATE" rev-parse --short HEAD)"
+[ -n "$EMIT_C" ] \
+  || die "the build emitted an EMPTY COMPILED_FROM. An empty stamp names no commit."
+[ -n "$EXPECTED_ABBREV" ] \
+  || die "could not read the private checkout's own abbreviation, so there is nothing to compare against"
+[ "$EMIT_C" = "$EXPECTED_ABBREV" ] \
+  || die "the build emitted COMPILED_FROM ${EMIT_C}, expected exactly ${EXPECTED_ABBREV}"
+RESOLVED="$(git -C "$PRIVATE" rev-parse --verify --quiet "${EMIT_C}^{commit}" || true)"
+[ "$RESOLVED" = "$TAG_SHA" ] \
+  || die "COMPILED_FROM ${EMIT_C} resolves to ${RESOLVED:-nothing}, not ${TAG_SHA}"
+ok "emitted stamp is ${EMIT_V} from ${EMIT_C}, which resolves to ${TAG_SHA:0:12}"
 
 echo "── 5/6 the RULES did not move, only the stamp ──"
 # Compared semantically, not as text. PATTERNS is one enormous line, so a text
@@ -145,6 +161,13 @@ gate() {
   fi
   ok "$name"
 }
+# THE GATES MUST READ THE ENGINE THE BUILD READ. The parity scripts resolve the
+# scanner through SUNGLASSES_SRC, not SG_SCANNER_ROOT, so without this they
+# imported the SHARED tree while the build came from the private checkout, and a
+# green gate would have described a different engine than the artifact. Both
+# names are exported because the compilers and the gates read different ones.
+export SG_SCANNER_ROOT="$PRIVATE"
+export SUNGLASSES_SRC="$PRIVATE"
 gate "disclosure gate" python3 disclosure_gate.py
 gate "policy parity"   python3 policy_parity.py
 gate "engine parity"   python3 engine_parity.py
