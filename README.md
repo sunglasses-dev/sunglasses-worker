@@ -66,8 +66,8 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   Python's own class, which asserted an equality the enumeration disproves.
 
   `\b` is still ASCII: the faithful rewrite is a pair of lookarounds over that
-  class, and substituting it for every boundary in 1,546 patterns ran V8's regex compiler
-  out of heap before a single document was scanned. 962 of the 1,557 shipped
+  class, and substituting it for every boundary in the 1,546 patterns of 0.5.8 ran V8's regex compiler
+  out of heap before a single document was scanned. 962 of the 1,565 shipped
   rules contain a boundary in a core or a guard, which is the number of rules
   this can reach rather than the number it changes. The earlier 924 counted
   core regex sources only and missed 38 rules whose boundary sits inside a
@@ -78,7 +78,7 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   Python's `\w` does not, and 4,657 of those are Unicode version skew. The
   remaining one is U+0345, an already assigned combining character that
   case-insensitive matching folds into the class. Expressing the exclusion needs
-  the `v` flag's set subtraction, which 862 of 1,574 compiled entries do not
+  the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not
   currently accept, so this is constrained and disclosed rather than repaired.
 
   It does NOT only over-match, and the earlier wording here said it did. The
