@@ -113,3 +113,48 @@ The sentence "substituting it for every boundary in 1,546 patterns ran V8 out of
 heap" describes an EXPERIMENT that was performed on the 0.5.8 set. It was dated
 rather than renumbered, because silently moving a historical measurement to a
 current count would be inventing a result nobody ran.
+
+---
+
+# Gate (e) — the disclosure number nothing was checking (added same day, T9 ruling)
+
+Section F above flagged "862 of 1,574 compiled entries" as a served claim with a
+method but **no gate**. Ruled: the method IS the gate. Wired as gate (e).
+
+The 962-of-N sentence had `disclosure_gate.py` and went red the instant 0.5.9
+moved it. The v-flag sentence one paragraph down in the same README moved too
+and nothing noticed. A fact written where nothing re-executes it is the shape
+that left 0.5.2 numbers on a 0.5.7 site for twelve days.
+
+## The method was validated before it was trusted
+
+The gate script, unchanged, run against the **0.5.8 artefact and the 0.5.8
+README**:
+
+    derived: 862 of 1,574 compiled entries reject the v flag
+    README says: 862 of 1,574
+    V-FLAG DISCLOSURE OK
+
+It reproduces the number that was *already published*, so it is the same
+measurement rather than a different one wearing the same name. Only then was it
+applied to the rebuild: **863 of 1,587**.
+
+## Controls
+
+    e1  numerator perturbed 863 -> 864          FAIL, names both pairs      exit 1
+    e2  denominator perturbed to the stale 1,574 FAIL, names both pairs      exit 1
+    e3  the claim removed from README            FAIL, and says to remove
+                                                 the gate in the same commit exit 1
+    e4  gate (e) forced to exit 7                script exit 1, READY lines 0
+    baseline on the 0.5.8 artefact + 0.5.8 README            OK, 862 of 1,574
+
+README restored byte-identical after e1-e3 (`git diff` empty).
+
+The gate refuses rather than self-heals: it prints both pairs and says to update
+the sentence to the measured pair, never to edit one number until they agree.
+
+## Full run with (e) live
+
+    ✓ disclosure gate · ✓ policy parity · ✓ engine parity · ✓ channel parity
+    ✓ v-flag disclosure
+    ✅ RECOMPILE READY for v0.5.9 (0.5.9 from 7340fceba38e). Still NOT deployed.

@@ -147,6 +147,14 @@ gate "disclosure gate" python3 disclosure_gate.py
 gate "policy parity"   python3 policy_parity.py
 gate "engine parity"   python3 engine_parity.py
 gate "channel parity"  python3 channel_parity.py
+# (e) THE DISCLOSURE NUMBER NOTHING WAS CHECKING. The 962-of-N sentence has
+# disclosure_gate.py and went red the moment 0.5.9 moved it. The v-flag sentence
+# one paragraph down in the same README moved too -- 862 of 1,574 -> 863 of
+# 1,587 -- and had no gate at all. That is a fact written where nothing
+# re-executes it, which is the shape that left 0.5.2 numbers on a 0.5.7 site for
+# twelve days. The method was validated before it was trusted: this same script,
+# unchanged, reproduces the PUBLISHED 862 of 1,574 on the 0.5.8 artefact.
+gate "v-flag disclosure" node _vflag_disclosure_gate.mjs
 
 cat <<NEXT
 
