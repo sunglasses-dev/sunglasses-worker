@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Recompile the Worker engine from a release tag.  ./prep_recompile.sh v0.5.9
+# Recompile the Worker engine from a release tag.
+#   ./prep_recompile.sh v0.5.9 7340fceba38ef441ae487d34dbd6889fcf60b3a5
 #
 # Supersedes prep_recompile_v058.sh, whose four pins were typed constants for
 # one release. The tag is now an ARGUMENT and every pin is READ FROM the private
@@ -35,7 +36,15 @@
 set -euo pipefail
 
 TAG="${1:-}"
-[ -n "$TAG" ] || { echo "usage: $0 <tag>   e.g. $0 v0.5.9" >&2; exit 2; }
+EXPECTED_SHA="${2:-}"
+[ -n "$TAG" ] && [ -n "$EXPECTED_SHA" ] || {
+  echo "usage: $0 <tag> <expected-full-sha>" >&2
+  echo "   e.g. $0 v0.5.9 7340fceba38ef441ae487d34dbd6889fcf60b3a5" >&2
+  echo "" >&2
+  echo "The sha is the commit the release was REVIEWED at, and it must come from" >&2
+  echo "outside this checkout -- the release receipt, the PR, the ruling that" >&2
+  echo "approved it. See the note at the identity gate below." >&2
+  exit 2; }
 
 SCANNER="${HOME}/sunglasses-dev/glasses"
 WORKER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -55,7 +64,36 @@ git -C "$SCANNER" rev-parse -q --verify "refs/tags/${TAG}" >/dev/null \
 TAG_SHA="$(git -C "$SCANNER" rev-parse "refs/tags/${TAG}^{commit}")"
 [ "$(git -C "$SCANNER" cat-file -t "$TAG_SHA")" = "commit" ] \
   || die "${TAG}^{commit} did not resolve to a commit object"
-ok "${TAG} -> ${TAG_SHA}"
+
+# ── THE IDENTITY GATE, RESTORED. ─────────────────────────────────────────────
+# Making the tag an argument was right; deleting this with it was not. The 9-14
+# recipe pinned EXPECTED_TAG_COMMIT, and when I replaced the four typed pins with
+# "read every pin out of the private checkout" I took this one too. ASTRA showed
+# the cost on 2026-09-20: he moved v0.5.9 onto a new, unreviewed commit that still
+# carried __version__ 0.5.9, and the whole new recipe accepted it, passed four
+# gates and printed READY. The OLD four-pin recipe refused the same moved tag
+# before compiling.
+#
+# The lesson is the boundary, not the value: a version string, a tag name and a
+# tree can all be read out of the checkout, because they are facts ABOUT the
+# source. Which commit was APPROVED is not a fact about the source -- it is a
+# fact about a review that happened elsewhere, and reading it from the same
+# checkout you are trying to validate proves nothing at all. So it comes in as
+# an argument, from the release receipt or the ruling that approved it.
+case "$EXPECTED_SHA" in
+  [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+  *) die "expected-sha '${EXPECTED_SHA}' is not a hex commit id" ;;
+esac
+[ "${#EXPECTED_SHA}" -eq 40 ] \
+  || die "expected-sha must be the FULL 40-character sha, not an abbreviation
+     (an abbreviation can become ambiguous as the repo grows; ${#EXPECTED_SHA} given)"
+[ "$TAG_SHA" = "$EXPECTED_SHA" ] \
+  || die "${TAG} points at ${TAG_SHA}
+     approved   ${EXPECTED_SHA}
+     The tag does not name the reviewed commit. Someone cut, moved or recreated
+     it, and the version string would look identical either way. Re-verify the
+     approval before compiling anything."
+ok "${TAG} -> ${TAG_SHA} (matches the approved commit)"
 
 echo "── 2/6 a PRIVATE checkout of the resolved commit ──"
 # THE SHARED TREE IS NOT A SOURCE THIS CAN TRUST, even after checking it.

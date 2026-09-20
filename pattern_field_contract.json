@@ -1,0 +1,73 @@
+{
+  "_comment": [
+    "REVIEWED CONTRACT for what a compiled rule must carry. ASTRA, PR #24 round 1:",
+    "a derivation cannot be the completeness authority. A variable-name heuristic",
+    "missed three real matcher reads, and an unrelated dict named `p` plus a module",
+    "with PATTERNS in a COMMENT each produced a false kill on a correct artefact.",
+    "Dictionary spelling is not evidence of access to a pattern dictionary.",
+    "",
+    "So the authority is this file, and the gate FAILS CLOSED on any source key it",
+    "does not classify: a new pattern field cannot ship until someone puts it here",
+    "as consulted or as metadata. Derivation still runs and is reported as",
+    "DIAGNOSTIC evidence beside it, never as the verdict.",
+    "",
+    "`where` is the lowering. `record` means the compiler must emit the same key on",
+    "the compiled record with an equal value. `regex[].anchors` and `regex[].span`",
+    "are the measured lowering of the anchored lane: EVERY compiled regex entry of",
+    "an anchored rule carries the same anchor set and span (7 rules, 13 entries,",
+    "measured on v0.5.9). Regex SEMANTICS stay with the behavioural parity gates;",
+    "this file is about fields surviving compilation, not about what they match."
+  ],
+  "contract_version": 1,
+  "measured_against": "v0.5.9 / 7340fceba38ef441ae487d34dbd6889fcf60b3a5",
+  "consulted": {
+    "id": {
+      "where": "record"
+    },
+    "channel": {
+      "where": "record"
+    },
+    "keywords": {
+      "where": "record",
+      "default_when_source_omits": [],
+      "compare": "source_minus_keyword_denylist",
+      "reason": "measured on v0.5.9, 1554/1554 exact: the compiler emits the source's keywords minus SunglassesEngine.KEYWORD_DENYLIST, order preserved -- the same FP-guard strip the engine applies at index-build time (engine.py:468). The denylist is READ FROM THE TAGGED SOURCE, never listed here, so a change to it cannot silently pass this gate."
+    },
+    "severity": {
+      "where": "record"
+    },
+    "negation_immune": {
+      "where": "record",
+      "default_when_source_omits": false,
+      "reason": "measured on v0.5.9: 1548 rules omit it and the compiler emits false"
+    },
+    "match_on": {
+      "where": "record"
+    },
+    "tier": {
+      "where": "record"
+    },
+    "regex": {
+      "where": "record",
+      "compare": "cardinality_only",
+      "reason": "the compiler transforms sources and adds guards/requires; entry COUNT is checked here and semantics are the parity gates' job"
+    },
+    "anchor_terms": {
+      "where": "regex[].anchors",
+      "compare": "set_on_every_entry"
+    },
+    "anchor_span": {
+      "where": "regex[].span",
+      "compare": "equal_on_every_entry"
+    }
+  },
+  "metadata": {
+    "_comment": "Consulted by nothing. The compiler MAY drop these -- `mechanism` is dropped on the one rule that carries it. If it emits one it must EQUAL the source, and it may never invent one the source does not carry.",
+    "keys": [
+      "category",
+      "description",
+      "mechanism",
+      "name"
+    ]
+  }
+}

@@ -153,18 +153,78 @@ def compiled_side(patterns_js):
     return json.loads(out.stdout)
 
 
+def _short(v, n=60):
+    t = repr(v)
+    return t if len(t) <= n else t[:n] + "\u2026"
+
+
+def load_contract():
+    """The reviewed classification of every pattern field. THE AUTHORITY.
+
+    ASTRA, round 1: derivation cannot be the completeness authority. A
+    variable-name heuristic missed three real matcher reads; an unrelated dict
+    named `p`, and a module with PATTERNS in a COMMENT, each produced a false
+    kill on a correct artefact. Dictionary spelling is not evidence of access to
+    a pattern dictionary. So the contract decides and derivation advises.
+    """
+    path = os.path.join(WORKER, "pattern_field_contract.json")
+    try:
+        c = json.load(open(path))
+    except Exception as e:
+        die(f"could not read the field contract at {path}: {e}")
+    consulted = c["consulted"]
+    metadata = c["metadata"]["keys"]
+    overlap = set(consulted) & set(metadata)
+    if overlap:
+        die(f"the contract classifies {sorted(overlap)} as BOTH consulted and metadata")
+    return consulted, metadata
+
+
 def main():
     patterns_js = sys.argv[1] if len(sys.argv) > 1 else os.path.join(WORKER, "src", "patterns.js")
     P, M = python_side()
-    consulted, static, runtime, n_scope = derive_consulted(P, M)
+    consulted, metadata = load_contract()
+    from sunglasses.engine import SunglassesEngine as _E
+    denylist = set(_E.KEYWORD_DENYLIST)          # from the TAGGED source, never typed
+    record_fields = [k for k, v in consulted.items() if v["where"] == "record"]
 
     py = list(P.PATTERNS)
     comp = compiled_side(patterns_js)["patterns"]
 
     print(f"  source   {SCANNER}")
-    print(f"  derived consulted fields ({len(consulted)}, scope {n_scope} modules): {', '.join(consulted)}")
-    print(f"    static-only {sorted(set(static) - set(runtime) & set(consulted))}  "
-          f"runtime-only {sorted(set(runtime) - set(static) & set(consulted))}")
+    print(f"  contract {len(consulted)} consulted + {len(metadata)} metadata (pattern_field_contract.json)")
+
+    # FAIL CLOSED ON A KEY NOBODY HAS CLASSIFIED. This is what makes the
+    # contract complete where a derivation cannot be: a new pattern field cannot
+    # reach the Worker until a human decides whether it must survive.
+    classified = set(consulted) | set(metadata)
+    unclassified = {}
+    for p in py:
+        for k in p:
+            if k not in classified:
+                unclassified.setdefault(k, p["id"])
+    if unclassified:
+        die("the tagged source carries pattern field(s) the contract does not classify: "
+            + ", ".join(f"{k} (e.g. {rid})" for k, rid in sorted(unclassified.items()))
+            + "\n     Classify each as consulted (with its lowering) or metadata in "
+              "pattern_field_contract.json. A field nobody has classified is a field "
+              "nobody has decided must survive compilation.")
+    print(f"  \u2713 every source field is classified ({len(classified)} known keys)")
+
+    # DIAGNOSTIC ONLY, never the verdict. Reported so a drift between what the
+    # matcher reads and what the contract says is visible to the reviewer.
+    try:
+        derived, _static, _runtime, n_scope = derive_consulted(P, M)
+        extra = sorted(set(derived) - set(consulted))
+        missing = sorted(set(consulted) - set(derived))
+        print(f"  diagnostic: derivation saw {len(derived)} field(s) over {n_scope} module(s)"
+              + (f"; NOT IN CONTRACT: {extra}" if extra else "")
+              + (f"; in contract but underived: {missing}" if missing else ""))
+        if extra:
+            print("    ^ derivation is advisory; if any of those is genuinely consulted, "
+                  "classify it in the contract before Friday.")
+    except Exception as e:
+        print(f"  diagnostic: derivation unavailable ({type(e).__name__}); the contract still decides")
 
     # (a) COUNT
     if len(comp) != len(py):
@@ -178,26 +238,96 @@ def main():
             f"only in compiled: {sorted(comp_ids - py_ids)[:8]}")
     print(f"  ✓ (b) rule-ID set identical ({len(py_ids)} ids)")
 
-    # (c) EVERY CONSULTED FIELD SURVIVES, per rule
+    # (c) EVERY CONTRACTED FIELD IS PRESERVED, per rule, BY VALUE
+    #
+    # ASTRA, round 1: the first version tested PRESENCE. Six independently
+    # constructed compiled mutants passed it -- two ids swapped while each
+    # record kept its own other data, a nonempty regex array emptied, a severity
+    # replaced with null, unexpected nested anchors added, and existing nested
+    # anchors replaced with null. Presence cannot justify the word EXACTLY. This
+    # compares values per id, checks cardinality, and rejects anything the
+    # source does not carry.
     by_id = {c["id"]: c for c in comp}
-    missing = []
+    problems = []
+    allowed_compiled = set(record_fields) | set(metadata)
+
     for p in py:
         c = by_id[p["id"]]
-        for f in consulted:
-            if f not in p:
-                continue                       # source does not carry it, nothing to preserve
-            if f in NESTED:
-                arr, key = NESTED[f]
-                if not any(key in e for e in (c.get(arr) or [])):
-                    missing.append((p["id"], f, f"{arr}[].{key}"))
-            elif f not in c:
-                missing.append((p["id"], f, f))
-    if missing:
-        fields = sorted({m[1] for m in missing})
-        die(f"(c) {len(missing)} rule/field pairs lost in compilation. "
-            f"fields: {fields}. first: {missing[:5]}")
-    carried = {f: sum(1 for p in py if f in p) for f in consulted}
-    print(f"  ✓ (c) every consulted field survives on every rule that declares it")
+
+        for key in sorted(allowed_compiled):
+            if key == "regex":
+                continue                                   # cardinality, below
+            in_src, in_cmp = key in p, key in c
+            is_meta = key in metadata
+            spec = consulted.get(key, {})
+            has_default = "default_when_source_omits" in spec
+
+            if in_src and not in_cmp:
+                # Metadata may be dropped -- that is what classifying it as
+                # metadata MEANS. A consulted field may not.
+                if not is_meta:
+                    problems.append(f"{p['id']}: {key} present in source, LOST in compilation")
+            elif in_cmp and not in_src:
+                # A DECLARED default is a lowering, not an invention. The value
+                # is checked against the contract's stated default, measured on
+                # the tag, so a compiler that starts defaulting something else
+                # is still caught.
+                if has_default:
+                    want = spec["default_when_source_omits"]
+                    if c[key] != want:
+                        problems.append(f"{p['id']}: {key} absent in source; compiled "
+                                        f"{_short(c[key])} is not the contracted default {_short(want)}")
+                else:
+                    problems.append(f"{p['id']}: {key} INVENTED by the compiler; the source has no "
+                                    "such key and the contract declares no default")
+            elif in_src and in_cmp:
+                want = p[key]
+                if spec.get("compare") == "source_minus_keyword_denylist":
+                    # A DECLARED, MEASURED lowering, not a loosening: the compiler
+                    # applies the engine's own FP-guard strip (engine.py:468). The
+                    # denylist is read out of the TAGGED SOURCE, so if it changes,
+                    # the expected value changes with it and this still bites.
+                    want = [k for k in p[key] if k.lower() not in denylist]
+                if c[key] != want:
+                    problems.append(f"{p['id']}: {key} CHANGED in compilation "
+                                    f"(expected {_short(want)} -> compiled {_short(c[key])})")
+
+        stray = set(c) - allowed_compiled
+        if stray:
+            problems.append(f"{p['id']}: compiled record carries unclassified key(s) {sorted(stray)}; "
+                            "add them to pattern_field_contract.json or stop emitting them")
+
+        src_entries, cmp_entries = p.get("regex") or [], c.get("regex") or []
+        if len(src_entries) != len(cmp_entries):
+            problems.append(f"{p['id']}: regex entries {len(src_entries)} in source, "
+                            f"{len(cmp_entries)} compiled")
+            continue
+
+        # The anchored lane, lowered onto EVERY entry or onto none.
+        want_anchors = p.get("anchor_terms")
+        want_span = p.get("anchor_span")
+        for i, e in enumerate(cmp_entries):
+            has = "anchors" in e
+            if want_anchors is None:
+                if has or "span" in e:
+                    problems.append(f"{p['id']} regex[{i}]: carries anchors/span, "
+                                    "but the source rule declares no anchor_terms")
+                continue
+            if not has:
+                problems.append(f"{p['id']} regex[{i}]: anchor_terms lost in compilation")
+                continue
+            if not isinstance(e["anchors"], list) or set(e["anchors"]) != set(want_anchors):
+                problems.append(f"{p['id']} regex[{i}]: anchors are not the source's anchor_terms "
+                                f"({len(e['anchors'] or [])} vs {len(want_anchors)} terms)")
+            if e.get("span") != want_span:
+                problems.append(f"{p['id']} regex[{i}]: span {e.get('span')!r} != anchor_span {want_span!r}")
+
+    if problems:
+        die(f"(c) {len(problems)} preservation failure(s). first 6:\n     "
+            + "\n     ".join(problems[:6]))
+
+    carried = {f: sum(1 for p in py if f in p) for f in sorted(allowed_compiled)}
+    print("  \u2713 (c) every contracted field preserved by value, per rule")
     print(f"        {carried}")
     print("  SOURCE PARITY OK")
 

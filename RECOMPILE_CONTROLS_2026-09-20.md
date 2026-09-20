@@ -158,3 +158,85 @@ the sentence to the measured pair, never to edit one number until they agree.
     ✓ disclosure gate · ✓ policy parity · ✓ engine parity · ✓ channel parity
     ✓ v-flag disclosure
     ✅ RECOMPILE READY for v0.5.9 (0.5.9 from 7340fceba38e). Still NOT deployed.
+
+---
+
+# ROUND 2 — ASTRA NO GO on bf6148f, three blocking findings, all adopted
+
+## B1 — a derivation cannot be the completeness authority
+
+ASTRA built **three real matcher reads** the derivation missed (an unusual
+variable's `.get`, a comprehension subscript, a dict-unpacking copy then `.get`),
+confirmed by execution that all three values are consulted, then let the ordinary
+compiler drop all three. **(c) stayed green.** In the other direction, an unused
+helper accessing an unrelated dict's `mechanism` key — and separately, a module
+with `PATTERNS` in a **comment** — each produced a **false kill on a correct
+artefact**. Dictionary spelling is not evidence of access to a pattern dictionary.
+
+Adopted verbatim: **a reviewed contract is the authority, derivation is
+diagnostic.** `pattern_field_contract.json` classifies every pattern key as
+consulted (with its lowering) or metadata, and the gate **fails closed on any
+source key it does not classify** — a new pattern field cannot reach the Worker
+until a human decides whether it must survive. Derivation still runs and its
+disagreement is *printed*, never fatal.
+
+Proof the false-kill routes are closed by demotion rather than by patching the
+heuristic — both of ASTRA's routes applied to a private 0.5.9 checkout:
+
+    gate exit 0
+    diagnostic: derivation saw 11 field(s) over 4 module(s); NOT IN CONTRACT: ['mechanism']
+    ✓ (c) every contracted field preserved by value, per rule
+
+Round 1 failed here on GLS-MER-568.
+
+## B2 — (c) tested presence, not preservation
+
+Six independently constructed mutants passed round 1. All six now die, each by
+its own named reason:
+
+    swap two ids, each record keeping its own data   (c) description CHANGED
+    empty a nonempty regex array                     (c) regex entries 1 -> 0
+    severity replaced with null                      (c) severity CHANGED
+    unexpected nested anchors added                  (c) carries anchors/span,
+                                                         source declares none
+    existing nested anchors nulled                   (c) anchors are not the
+                                                         source's anchor_terms
+    a key the source does not carry                  (c) unclassified key
+    (duplicate id already failed (b) in round 1)
+
+The original four still hold: drop id → (a); rename id → (b); strip `match_on`
+→ (c) 3; strip anchors → (c) 13. The unmutated artefact exits 0 — no false kill.
+
+**Two lowerings are declared rather than loosened, both measured, both read out
+of the tagged source rather than typed:**
+
+- `keywords` — the compiler applies the engine's own FP-guard strip
+  (`engine.py:468`). Compiled == source minus `SunglassesEngine.KEYWORD_DENYLIST`,
+  order preserved: **1554/1554 exact** on v0.5.9. The denylist is read from the
+  tagged source, so if it changes the expectation changes with it.
+- `keywords: []` and `negation_immune: false` are compiler **defaults** when the
+  source omits the key (766 and 1548 rules). Declared with their values, so a
+  compiler that starts defaulting something else is still caught.
+
+## B3 — the reviewed-commit check, restored
+
+ASTRA moved `v0.5.9` onto a new unreviewed commit that still carried
+`__version__ 0.5.9`. The round-1 recipe **accepted it, passed four gates and
+printed READY**; the old four-pin recipe refused the same moved tag.
+
+Making the tag an argument was right. Deleting `EXPECTED_TAG_COMMIT` with it was
+not, and the boundary is the lesson: a version string, a tag name and a tree are
+facts **about the source** and may be read from the checkout. *Which commit was
+approved* is a fact about a **review that happened elsewhere**, and reading it
+from the same checkout you are validating proves nothing.
+
+So the sha is now a required argument. Every branch exercised by a stimulus that
+actually reaches it — the first attempt reported the length check while the input
+was really caught by the hex pattern:
+
+    <none>                                     exit 2  usage
+    zzzz                                       exit 1  not a hex commit id
+    7340fce                                    exit 1  not a hex commit id
+    7340fceb                                   exit 1  must be the FULL 40-character sha
+    b7e33c23…(the moved-tag shape)             exit 1  does not name the reviewed commit
+    v0.5.9 + the approved sha                  exit 0  five gates, RECOMPILE READY
