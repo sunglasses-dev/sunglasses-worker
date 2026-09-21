@@ -85,29 +85,60 @@ if (!keys.length) {
   process.exit(0);
 }
 
+// EXIT 2 IS EVERY WAY THIS FAILS TO MEASURE, not just the one I wrote first.
+// ASTRA, round 4, and he is right: the contract load exited 2, but a
+// dependency failure did not. `PATH=/nonexistent` makes the corpus-export
+// subprocess unavailable, the exception propagated, node exited 1 -- the code
+// reserved for A MEASURED NONZERO DELTA. A missing interpreter impersonated a
+// real finding, which is precisely the confusion the two codes exist to
+// prevent. I had built half the separation and tested that half.
+//
+// So every step that can fail WITHOUT producing a measurement is wrapped and
+// classified: exporting the corpus, copying the trees, running a child,
+// parsing its result. Exit 1 is now reserved for deltas that were actually
+// measured and were nonzero.
+class ExecutionError extends Error {
+  constructor(stage, cause) {
+    super(`${stage}: ${cause && cause.message ? cause.message : cause}`);
+    this.stage = stage;
+  }
+}
+const step = (stage, fn) => {
+  try { return fn(); }
+  catch (e) { throw new ExecutionError(stage, e); }
+};
+
 const work = mkdtempSync(join(tmpdir(), "metadata-control-"));
 try {
   const cases = join(work, "cases.json");
   // The corpus comes from the parity gate itself, never a copy of it.
-  execFileSync("python3", [join(root, "engine_parity.py"), "--dump-cases", cases],
-    { cwd: root, stdio: "pipe" });
-  const n = JSON.parse(readFileSync(cases, "utf8")).length;
+  step("exporting the corpus (engine_parity.py --dump-cases)", () =>
+    execFileSync("python3", [join(root, "engine_parity.py"), "--dump-cases", cases],
+      { cwd: root, stdio: "pipe" }));
+  const n = step("reading the exported corpus", () =>
+    JSON.parse(readFileSync(cases, "utf8")).length);
+  if (!n) throw new ExecutionError("reading the exported corpus", "the corpus is empty");
 
-  cpSync(join(root, "src"), join(work, "base"), { recursive: true });
-  writeFileSync(join(work, "base", "package.json"), '{"type":"module"}');
+  step("copying the base tree", () => {
+    cpSync(join(root, "src"), join(work, "base"), { recursive: true });
+    writeFileSync(join(work, "base", "package.json"), '{"type":"module"}');
+  });
 
   console.log(`  corpus: ${n} cases from engine_parity.py --dump-cases`);
   let bad = 0;
   for (const key of keys) {
     const mut = join(work, `mut_${key}`);
-    cpSync(join(root, "src"), mut, { recursive: true });
-    writeFileSync(join(mut, "package.json"), '{"type":"module"}');
-    const pj = join(mut, "patterns.js");
-    writeFileSync(pj, readFileSync(pj, "utf8") + `\nfor (const p of PATTERNS) delete p.${key};\n`);
+    step(`building the mutant tree for ${key}`, () => {
+      cpSync(join(root, "src"), mut, { recursive: true });
+      writeFileSync(join(mut, "package.json"), '{"type":"module"}');
+      const pj = join(mut, "patterns.js");
+      writeFileSync(pj, readFileSync(pj, "utf8") + `\nfor (const p of PATTERNS) delete p.${key};\n`);
+    });
 
-    const out = execFileSync("node", [join(here, "_metadata_one_key.mjs"), work, key, cases],
-      { encoding: "utf8" });
-    const r = JSON.parse(out);
+    const out = step(`running the child for ${key}`, () =>
+      execFileSync("node", [join(here, "_metadata_one_key.mjs"), work, key, cases],
+        { encoding: "utf8" }));
+    const r = step(`parsing the child's result for ${key}`, () => JSON.parse(out));
     const inert = r.idDelta === 0 && r.recordDelta === 0 && r.decisionDelta === 0;
     // "inert by absence" and "inert though present" are both passes and are not
     // the same fact. `mechanism` is the first: the compiler drops it, 0 of the
@@ -140,6 +171,14 @@ try {
   console.log(`  METADATA CONTRACT OK — ${keys.length} key(s): no finding-ID, finding-record or`);
   console.log(`  decision differences observed on these ${n} cases. Bounded by this corpus; not a`);
   console.log(`  claim of universal inertness.`);
+} catch (e) {
+  if (e instanceof ExecutionError) {
+    console.log(`  CONTROL DID NOT RUN — ${e.message}`);
+    console.log("  This is an EXECUTION failure, not a measurement. Exit 2, never 1:");
+    console.log("  a missing interpreter, an unreadable corpus or a child that never");
+    console.log("  started must not be able to look like a key that changed the engine.");
+    process.exitCode = 2;
+  } else { throw e; }
 } finally {
   rmSync(work, { recursive: true, force: true });
 }

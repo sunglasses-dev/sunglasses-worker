@@ -49,8 +49,32 @@ for (const rule of m.PATTERNS) {
 // agreement is.
 const readmeRaw = readFileSync(`${worker}README.md`, "utf8");
 const readme = readmeRaw.replace(/<!--[\s\S]*?-->/g, "");
+// ROUND 4, found by the reviewer-supplied candidate probe rather than by
+// reading: grading only the CANONICAL WORDING leaves a contradiction in any
+// other wording untouched beside it. This README passed:
+//
+//     ...which 863 of 1,587 compiled entries do not currently accept.
+//     Note for operators: in practice only 400 of 1,587 entries reject the
+//     v flag, so the number above is conservative.
+//
+// Both sentences are about the same quantity, the second is false, and the
+// gate compared the first and stopped. ASTRA named the shape in round 4 as a
+// source-derived concern; the probe turned it into an executed break.
+//
+// So the subject is not a phrase, it is A CLAIM ABOUT THIS QUANTITY. Every
+// `N of M` pair whose surrounding sentence talks about the v flag or compiled
+// entries is graded. The context window is what keeps it from grading every
+// number in the file -- measured on this README, exactly one pair exists and
+// it is the real claim, so the widening costs nothing here and would catch a
+// second one the moment somebody adds it.
 const CLAIM = /which ([\d,]+) of ([\d,]+) compiled entries do not/g;
+const ANY_PAIR = /\b([\d,]+) of ([\d,]+)\b/g;
+const ABOUT_VFLAG = /v.{0,3}flag|compiled entr/i;
 const claims = [...readme.matchAll(CLAIM)];
+const related = [...readme.matchAll(ANY_PAIR)].filter((m) => {
+  const ctx = readme.slice(Math.max(0, m.index - 140), m.index + m[0].length + 140);
+  return ABOUT_VFLAG.test(ctx);
+});
 const num = (s) => Number(s.replace(/,/g, ""));
 const fmt = (n) => n.toLocaleString("en-US");
 
@@ -70,6 +94,22 @@ if (!claims.length) {
 
 console.log(`  README says: ${claims.map(([, n, m]) => `${n} of ${m}`).join("; ")}`);
 const wrong = claims.filter(([, n, m]) => num(n) !== rejected || num(m) !== total);
+// The same test, over every pair the surrounding text ties to this quantity --
+// including ones the canonical matcher never sees.
+const wrongRelated = related.filter(([, n, m]) => num(n) !== rejected || num(m) !== total);
+if (!wrong.length && wrongRelated.length) {
+  console.log(`\n  V-FLAG DISCLOSURE FAIL`);
+  console.log(`    the published claim agrees with the measurement, and a SECOND`);
+  console.log(`    statement about the same quantity does not:`);
+  for (const m of wrongRelated) {
+    const ctx = readme.slice(Math.max(0, m.index - 90), m.index + m[0].length + 90);
+    console.log(`      ...${ctx.replace(/\s+/g, " ").trim()}...`);
+  }
+  console.log(`    measured ${fmt(rejected)} of ${fmt(total)}`);
+  console.log(`    A reader is given every sentence, not the one this gate grew up`);
+  console.log(`    matching. Correct it or remove it.`);
+  process.exit(1);
+}
 if (wrong.length) {
   console.log(`\n  V-FLAG DISCLOSURE FAIL`);
   for (const [, n, m] of wrong) console.log(`    README   ${n} of ${m}`);

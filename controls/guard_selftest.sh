@@ -67,6 +67,36 @@ row "no mutant tree at all"          refused  build_missing
 # `category`, which is present on all 1554, so none of them could see it.
 # A precondition tested only on the easy key is not tested.
 row_key mechanism "a key the compiler legitimately drops" accepted build_proper_key
+
+# ── EXIT CODE SEPARATION ─────────────────────────────────────────────────────
+# ASTRA round 4 broke the claim these rows now defend. Exit 1 must mean A DELTA
+# WAS MEASURED AND WAS NONZERO; exit 2 must mean the run never measured
+# anything. He found the second half missing: with the contract present but the
+# corpus exporter unreachable, the exception propagated and node exited 1, so a
+# missing interpreter read as a real finding.
+#
+# The rows below are the ones that were absent. A run that cannot measure is
+# not a detection, and nothing else in this repo says so.
+echo
+printf '%-34s %-14s %-14s %s\n' "EXIT-CODE ROW" WANT GOT ''
+code_row () { # name, want, then the command
+  local name="$1" want="$2"; shift 2
+  "$@" >/dev/null 2>&1; local rc=$?
+  local mark="ok"; [ "$rc" != "$want" ] && { mark="  <-- WRONG CODE"; FAIL=1; }
+  printf '%-34s %-14s %-14s %s\n' "$name" "$want" "$rc" "$mark"
+}
+code_row "no contract argument"        2 node "$ROOT/controls/metadata_is_measured.mjs" --contract
+code_row "contract path does not exist" 2 node "$ROOT/controls/metadata_is_measured.mjs" --contract /nonexistent/c.json
+code_row "contract has no metadata.keys" 2 node "$ROOT/controls/metadata_is_measured.mjs" --contract "$CASES"
+# THE ROW ASTRA ADDED: the contract is fine, the DEPENDENCY is not. The
+# ABSOLUTE node path matters -- with a bare `node` the shell cannot find the
+# interpreter either and returns 127 before any of our code runs, which tests
+# the shell rather than the control. His case was node running FINE and its
+# children unreachable.
+NODE_BIN="$(command -v node)"
+code_row "the corpus exporter is unreachable" 2 env PATH=/nonexistent "$NODE_BIN" "$ROOT/controls/metadata_is_measured.mjs"
+# And the per-key child, one layer further in than the exporter.
+code_row "a real measurement still exits 0" 0 node "$ROOT/controls/metadata_is_measured.mjs"
 echo
 if [ "$FAIL" -ne 0 ]; then
   echo "GUARD SELFTEST FAIL — a degenerate tree was measured instead of refused."
