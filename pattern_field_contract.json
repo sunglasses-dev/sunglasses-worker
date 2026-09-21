@@ -11,6 +11,17 @@
     "as consulted or as metadata. Derivation still runs and is reported as",
     "DIAGNOSTIC evidence beside it, never as the verdict.",
     "",
+    "ROUND 2 WAS WRONG ABOUT THREE OF ITS FOUR METADATA KEYS, and gate (c) was",
+    "green for all three, because (c) grades the artefact against this file and",
+    "this file's metadata bucket was an assertion nobody had executed. Measured",
+    "2026-09-21 over the 136-case parity corpus, deleting each key from the",
+    "compiled rule set: `category` changed WHICH findings fire in 11 cases, and",
+    "`name` and `description` changed 43 finding records each. Only `mechanism`",
+    "was inert. controls/metadata_is_measured.mjs now proves the remaining",
+    "metadata keys inert on every run, so `metadata` is a measurement and no",
+    "longer a claim. A reader that grades itself is what this whole file exists",
+    "to stop.",
+    "",
     "`where` is the lowering. `record` means the compiler must emit the same key on",
     "the compiled record with an equal value. `regex[].anchors` and `regex[].span`",
     "are the measured lowering of the anchored lane: EVERY compiled regex entry of",
@@ -59,15 +70,25 @@
     "anchor_span": {
       "where": "regex[].span",
       "compare": "equal_on_every_entry"
+    },
+    "category": {
+      "where": "record",
+      "reason": "reaches control flow twice, both measured 2026-09-21: engine.js:588/593 suppress a mechanism when a carrier of the SAME category already fired at >= severity, and policy.js:73-74 group findings by category for the corroboration rule. Deleting it leaves GLS-MECH-001 unsuppressed in 11 of 136 corpus cases. Filed as metadata in round 2 on no measurement."
+    },
+    "name": {
+      "where": "record",
+      "reason": "copied onto every finding at engine.js:423. It steers nothing -- 0 id and 0 decision deltas -- but deleting it changes 43 of the 136 corpus results, so a compiler that dropped it would rewrite the JSON a consumer reads while gate (c) stayed green."
+    },
+    "description": {
+      "where": "record",
+      "reason": "copied onto every finding at engine.js:426; same measurement as `name`, 43 changed records, 0 id and 0 decision deltas."
     }
   },
   "metadata": {
-    "_comment": "Consulted by nothing. The compiler MAY drop these -- `mechanism` is dropped on the one rule that carries it. If it emits one it must EQUAL the source, and it may never invent one the source does not carry.",
+    "_comment": "Consulted by nothing AND emitted by nothing -- the compiler MAY drop these, and `mechanism` is dropped on the one rule that carries it. If it emits one it must EQUAL the source, and it may never invent one the source does not carry. This is no longer taken on anyone's word: controls/metadata_is_measured.mjs deletes every key listed here from the compiled rule set and requires byte-identical engine output over the parity corpus. Adding a key here without that control going green is how round 2 shipped three wrong ones.",
     "keys": [
-      "category",
-      "description",
-      "mechanism",
-      "name"
-    ]
+      "mechanism"
+    ],
+    "proven_inert_by": "controls/metadata_is_measured.mjs"
   }
 }

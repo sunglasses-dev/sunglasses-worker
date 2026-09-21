@@ -30,26 +30,55 @@ for (const rule of m.PATTERNS) {
   }
 }
 
-const readme = readFileSync(`${worker}README.md`, "utf8");
-const claim = readme.match(/which ([\d,]+) of ([\d,]+) compiled entries do not/);
+// WHAT THE FIRST VERSION GRADED, and why that was not the disclosure.
+// It used `readme.match(...)`, which returns the FIRST occurrence in the whole
+// file, and then graded only that one. Two shapes walked straight through it,
+// both measured on 2026-09-21 before this was written:
+//
+//   (1) an HTML comment carrying the correct pair, placed ABOVE a published
+//       sentence carrying a wrong one -- the gate read the comment and passed a
+//       README that told the reader 862;
+//   (2) a second, contradicting sentence appended after the correct one -- the
+//       gate read the first and never saw that the file now says both.
+//
+// The subject of this gate is the number a READER is given, and a reader is
+// given every occurrence and none of the comments. So: comments are removed
+// first (a comment can neither satisfy this gate nor break it), then EVERY
+// remaining occurrence must name the measured pair, and there must be at least
+// one. Two occurrences that agree are fine; the count is not the rule, the
+// agreement is.
+const readmeRaw = readFileSync(`${worker}README.md`, "utf8");
+const readme = readmeRaw.replace(/<!--[\s\S]*?-->/g, "");
+const CLAIM = /which ([\d,]+) of ([\d,]+) compiled entries do not/g;
+const claims = [...readme.matchAll(CLAIM)];
 const num = (s) => Number(s.replace(/,/g, ""));
 const fmt = (n) => n.toLocaleString("en-US");
 
 console.log(`  derived: ${fmt(rejected)} of ${fmt(total)} compiled entries reject the v flag`);
 
-if (!claim) {
+if (!claims.length) {
+  const inComment = [...readmeRaw.matchAll(CLAIM)].length > 0;
   console.log("  README no longer carries the 'N of M compiled entries' claim.");
-  console.log("  If it was removed deliberately, remove this gate in the same commit.");
+  if (inComment) {
+    console.log("  It appears ONLY inside an HTML comment, which the reader never sees.");
+    console.log("  A commented-out claim is not a disclosure.");
+  } else {
+    console.log("  If it was removed deliberately, remove this gate in the same commit.");
+  }
   process.exit(1);
 }
-const [, saidN, saidM] = claim;
-console.log(`  README says: ${saidN} of ${saidM}`);
-if (num(saidN) !== rejected || num(saidM) !== total) {
+
+console.log(`  README says: ${claims.map(([, n, m]) => `${n} of ${m}`).join("; ")}`);
+const wrong = claims.filter(([, n, m]) => num(n) !== rejected || num(m) !== total);
+if (wrong.length) {
   console.log(`\n  V-FLAG DISCLOSURE FAIL`);
-  console.log(`    README   ${saidN} of ${saidM}`);
+  for (const [, n, m] of wrong) console.log(`    README   ${n} of ${m}`);
   console.log(`    measured ${fmt(rejected)} of ${fmt(total)}`);
+  if (claims.length > 1) {
+    console.log(`    ${claims.length} occurrences of the claim were graded; ${wrong.length} disagree.`);
+  }
   console.log(`    Update the sentence to the measured pair, or explain why the`);
   console.log(`    measurement changed. Do not edit one number to match the other.`);
   process.exit(1);
 }
-console.log("  V-FLAG DISCLOSURE OK");
+console.log(`  V-FLAG DISCLOSURE OK (${claims.length} occurrence(s), all agreeing)`);

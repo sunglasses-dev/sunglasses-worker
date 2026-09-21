@@ -193,6 +193,17 @@ gate "channel parity"  python3 channel_parity.py
 # twelve days. The method was validated before it was trusted: this same script,
 # unchanged, reproduces the PUBLISHED 862 of 1,574 on the 0.5.8 artefact.
 gate "v-flag disclosure" node _vflag_disclosure_gate.mjs
+# (f) THE CONTRACT'S metadata BUCKET, MEASURED INSTEAD OF ASSERTED. Round 2
+# wrote "consulted by nothing" over four keys and gate (c) was green for all
+# four; three of them were wrong. `category` reaches control flow in the JS
+# engine (engine.js:588/593, policy.js:73), and `name`/`description` are copied
+# onto every finding. (c) could not see it, because (c) grades the artefact
+# against the contract and the contract was the unexamined claim -- and the
+# derivation could not see it either, because the derivation reads the PYTHON
+# matcher while the read sites are in the Worker engine. Only running the
+# compiled artefact answers it. This deletes each remaining metadata key and
+# requires the engine's output to be unchanged over the parity corpus.
+gate "metadata contract" node controls/metadata_is_measured.mjs
 
 cat <<NEXT
 
