@@ -96,6 +96,11 @@ code_row "contract has no metadata.keys" 2 node "$ROOT/controls/metadata_is_meas
 NODE_BIN="$(command -v node)"
 code_row "the corpus exporter is unreachable" 2 env PATH=/nonexistent "$NODE_BIN" "$ROOT/controls/metadata_is_measured.mjs"
 # And the per-key child, one layer further in than the exporter.
+# ASTRA round 5, X1 and X2: the FIRST filesystem touch is before the try block,
+# so a bad TMPDIR threw past the handler and exited 1. Third time the untested
+# route was the one I had not written; these two rows are now the enumeration.
+code_row "TMPDIR does not exist"          2 env TMPDIR=/nonexistent "$NODE_BIN" "$ROOT/controls/metadata_is_measured.mjs"
+code_row "TMPDIR is not a directory"      2 env TMPDIR=/dev/null    "$NODE_BIN" "$ROOT/controls/metadata_is_measured.mjs"
 code_row "a real measurement still exits 0" 0 node "$ROOT/controls/metadata_is_measured.mjs"
 echo
 if [ "$FAIL" -ne 0 ]; then

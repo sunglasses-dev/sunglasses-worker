@@ -50,7 +50,37 @@ for (const rule of m.PATTERNS) {
 const readmeRaw = readFileSync(`${worker}README.md`, "utf8");
 const readme = readmeRaw.replace(/<!--[\s\S]*?-->/g, "");
 
-// ROUND 5 — THE GATE IS AN ALLOWLIST NOW, and the count is the rule.
+// ROUND 5 VERDICT — THIS GATE IS RESCOPED, NOT FIXED. READ THIS BEFORE
+// TRUSTING ITS GREEN.
+//
+// The allowlist below asserts ONE thing: the canonical v-flag sentence carries
+// the measured pair. It does NOT establish that the README is honest about this
+// quantity, and it cannot. ASTRA, 2026-09-21, constructed 32 misleading READMEs
+// and **19 OF THEM PASSED**, across five independent classes:
+//
+//   1. STRUCTURE the splitter cannot see -- a canonical claim without its final
+//      period, one newline, then a contradictory table; joined list items,
+//      headings, code fences and image alt text likewise. Markdown structure is
+//      not sentences.
+//   2. SUBJECT wording it does not recognise -- rendered emphasis, links, HTML
+//      entities, a non-breaking space.
+//   3. DISTRIBUTION -- a table spreading the subject and the quantity across
+//      cells so no single unit carries both.
+//   4. ONE SENTENCE, TWO CLAIMS. This is the one that ends the argument: the
+//      count rule counts SENTENCES, and a single grammatical sentence can carry
+//      contradictory counts. "One sentence = one claim" is false in prose.
+//   5. HIDDEN OR STALE canonical text -- in an outdated example or a hidden
+//      element, while the visible prose contradicts it.
+//
+// Classes 2, 3 and 4 are not boundary problems, so no amount of better
+// splitting reaches them. A sixth widening would be the fifth round of the same
+// losing game: grading prose for truth cannot be won.
+//
+// **A README-honesty gate cannot exist. Only a this-sentence-matches-the-
+// measurement gate can, and that is what this is.** Multiplicity is a NECESSARY
+// check and never a SUFFICIENT one, which is why the count rule stays.
+//
+// ── the allowlist, within that scope ─────────────────────────────────────────
 //
 // Rounds 3 and 4 each widened a matcher after a new shape got past it: first an
 // HTML comment, then a duplicate, then a contradiction phrased differently. That

@@ -80,6 +80,7 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   case-insensitive matching folds into the class. Expressing the exclusion needs
   the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not
   currently accept, so this is constrained and disclosed rather than repaired.
+  This figure is derived from the compiled artefact by the recompile script, and this sentence is the only one the script checks.
 
   It does NOT only over-match, and the earlier wording here said it did. The
   positive class matches U+0345 where Python's `\w` does not, which can add a

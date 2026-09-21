@@ -108,7 +108,22 @@ const step = (stage, fn) => {
   catch (e) { throw new ExecutionError(stage, e); }
 };
 
-const work = mkdtempSync(join(tmpdir(), "metadata-control-"));
+// THIRD INSTANCE OF THE SAME ERROR, ASTRA round 5 (X1, X2). I wrapped every
+// step INSIDE the try and never asked what runs BEFORE it. `mkdtempSync` is the
+// first thing that touches the filesystem, and with TMPDIR missing or not a
+// directory it threw past the handler and exited 1 -- the code reserved for a
+// measured nonzero delta, again.
+//
+// Round 4 taught "enumerate every route to each side of the distinction". The
+// routes I enumerated were the ones I had written. This is the one I had not.
+let work;
+try {
+  work = mkdtempSync(join(tmpdir(), "metadata-control-"));
+} catch (e) {
+  console.log(`  CONTROL DID NOT RUN — creating a temporary directory: ${e.message}`);
+  console.log("  This is an EXECUTION failure, not a measurement. Exit 2, never 1.");
+  process.exit(2);
+}
 try {
   const cases = join(work, "cases.json");
   // The corpus comes from the parity gate itself, never a copy of it.

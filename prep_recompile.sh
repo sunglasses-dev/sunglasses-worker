@@ -192,7 +192,17 @@ gate "channel parity"  python3 channel_parity.py
 # re-executes it, which is the shape that left 0.5.2 numbers on a 0.5.7 site for
 # twelve days. The method was validated before it was trusted: this same script,
 # unchanged, reproduces the PUBLISHED 862 of 1,574 on the 0.5.8 artefact.
-gate "v-flag disclosure" node _vflag_disclosure_gate.mjs
+# SCOPE, after ASTRA round 5 (2026-09-21). This gate asserts that the canonical
+# v-flag sentence carries the measured pair. It does NOT establish that the
+# README is honest about the quantity: 19 of 32 constructed misleading READMEs
+# passed it, across five classes -- markdown structure the sentence splitter
+# cannot see, subject wording it does not recognise, a quantity distributed
+# across table cells, two contradictory claims inside ONE sentence, and canonical
+# text hidden or stale while the visible prose contradicts it. Three of those are
+# not boundary problems and no better splitting reaches them. Read a green here
+# as "the canonical sentence matches the measurement", never as "this README is
+# honest".
+gate "v-flag disclosure (canonical sentence only)" node _vflag_disclosure_gate.mjs
 # (f) THE CONTRACT'S metadata BUCKET, MEASURED INSTEAD OF ASSERTED. Round 2
 # wrote "consulted by nothing" over four keys and gate (c) was green for all
 # four; three of them were wrong. `category` reaches control flow in the JS
