@@ -49,76 +49,74 @@ for (const rule of m.PATTERNS) {
 // agreement is.
 const readmeRaw = readFileSync(`${worker}README.md`, "utf8");
 const readme = readmeRaw.replace(/<!--[\s\S]*?-->/g, "");
-// ROUND 4, found by the reviewer-supplied candidate probe rather than by
-// reading: grading only the CANONICAL WORDING leaves a contradiction in any
-// other wording untouched beside it. This README passed:
+
+// ROUND 5 — THE GATE IS AN ALLOWLIST NOW, and the count is the rule.
 //
-//     ...which 863 of 1,587 compiled entries do not currently accept.
-//     Note for operators: in practice only 400 of 1,587 entries reject the
-//     v flag, so the number above is conservative.
+// Rounds 3 and 4 each widened a matcher after a new shape got past it: first an
+// HTML comment, then a duplicate, then a contradiction phrased differently. That
+// is the denylist game, and it is the one that cost the channel-vocabulary PR
+// four rounds before it was inverted. Grading prose for truth cannot be won;
+// there is always another wording.
 //
-// Both sentences are about the same quantity, the second is false, and the
-// gate compared the first and stopped. ASTRA named the shape in round 4 as a
-// source-derived concern; the probe turned it into an executed break.
+// So the README may mention this subject in EXACTLY ONE sentence, and that
+// sentence must be the canonical claim carrying the measured pair. A SECOND
+// mention is a failure BY COUNT and is never graded for truth -- "conservative",
+// "fewer than half", another N-of-M, a hedge, anything. MULTIPLICITY IS THE
+// DEFECT: one quantity, one sentence, or the reader is being given two answers
+// and this gate has no business deciding which one they will believe.
 //
-// So the subject is not a phrase, it is A CLAIM ABOUT THIS QUANTITY. Every
-// `N of M` pair whose surrounding sentence talks about the v flag or compiled
-// entries is graded. The context window is what keeps it from grading every
-// number in the file -- measured on this README, exactly one pair exists and
-// it is the real claim, so the widening costs nothing here and would catch a
-// second one the moment somebody adds it.
-const CLAIM = /which ([\d,]+) of ([\d,]+) compiled entries do not/g;
-const ANY_PAIR = /\b([\d,]+) of ([\d,]+)\b/g;
-const ABOUT_VFLAG = /v.{0,3}flag|compiled entr/i;
-const claims = [...readme.matchAll(CLAIM)];
-const related = [...readme.matchAll(ANY_PAIR)].filter((m) => {
-  const ctx = readme.slice(Math.max(0, m.index - 140), m.index + m[0].length + 140);
-  return ABOUT_VFLAG.test(ctx);
-});
+// THE SUBJECT IS THE V FLAG, NOT "compiled entries". Measured before this was
+// written, because the obvious wider marker would have reddened our own README:
+// three sentences mention "compiled entries" and two of them are about
+// unrelated quantities (133 rules across 140 entries carrying a range; 37
+// across 41 using a digit shorthand). A rule keyed on that marker fails the
+// product on its first run. Keyed on the v flag, the real README has exactly
+// one mention.
+const SENTENCES = readme.split(/(?<=[.!?])\s+|\n\n/).filter((x) => x.trim());
+const NAMES_VFLAG = /`?\bv\b`?[\s\u00a0]*flag|\bv-flag\b/i;
+const mentions = SENTENCES.filter((x) => NAMES_VFLAG.test(x));
+
+const CLAIM = /which ([\d,]+) of ([\d,]+) compiled entries do not/;
 const num = (s) => Number(s.replace(/,/g, ""));
 const fmt = (n) => n.toLocaleString("en-US");
 
 console.log(`  derived: ${fmt(rejected)} of ${fmt(total)} compiled entries reject the v flag`);
+console.log(`  README mentions the v flag in ${mentions.length} sentence(s)`);
 
-if (!claims.length) {
-  const inComment = [...readmeRaw.matchAll(CLAIM)].length > 0;
-  console.log("  README no longer carries the 'N of M compiled entries' claim.");
-  if (inComment) {
-    console.log("  It appears ONLY inside an HTML comment, which the reader never sees.");
-    console.log("  A commented-out claim is not a disclosure.");
-  } else {
-    console.log("  If it was removed deliberately, remove this gate in the same commit.");
-  }
+if (mentions.length === 0) {
+  const inComment = NAMES_VFLAG.test(readmeRaw);
+  console.log("  README makes no statement about the v flag.");
+  if (inComment) console.log("  It appears ONLY inside an HTML comment, which the reader never sees.");
+  console.log("  If the claim was removed deliberately, remove this gate in the same commit.");
   process.exit(1);
 }
 
-console.log(`  README says: ${claims.map(([, n, m]) => `${n} of ${m}`).join("; ")}`);
-const wrong = claims.filter(([, n, m]) => num(n) !== rejected || num(m) !== total);
-// The same test, over every pair the surrounding text ties to this quantity --
-// including ones the canonical matcher never sees.
-const wrongRelated = related.filter(([, n, m]) => num(n) !== rejected || num(m) !== total);
-if (!wrong.length && wrongRelated.length) {
-  console.log(`\n  V-FLAG DISCLOSURE FAIL`);
-  console.log(`    the published claim agrees with the measurement, and a SECOND`);
-  console.log(`    statement about the same quantity does not:`);
-  for (const m of wrongRelated) {
-    const ctx = readme.slice(Math.max(0, m.index - 90), m.index + m[0].length + 90);
-    console.log(`      ...${ctx.replace(/\s+/g, " ").trim()}...`);
-  }
-  console.log(`    measured ${fmt(rejected)} of ${fmt(total)}`);
-  console.log(`    A reader is given every sentence, not the one this gate grew up`);
-  console.log(`    matching. Correct it or remove it.`);
+if (mentions.length > 1) {
+  console.log(`\n  V-FLAG DISCLOSURE FAIL — ${mentions.length} sentences mention the v flag.`);
+  for (const m of mentions) console.log(`      ${m.replace(/\s+/g, " ").trim().slice(0, 150)}`);
+  console.log(`    One quantity, one sentence. A second mention is a failure BY COUNT and`);
+  console.log(`    is NOT graded for truth: whichever one is wrong, the reader has been`);
+  console.log(`    given two answers and this gate cannot choose for them. Say it once.`);
   process.exit(1);
 }
-if (wrong.length) {
-  console.log(`\n  V-FLAG DISCLOSURE FAIL`);
-  for (const [, n, m] of wrong) console.log(`    README   ${n} of ${m}`);
+
+const claim = mentions[0].match(CLAIM);
+if (!claim) {
+  console.log(`\n  V-FLAG DISCLOSURE FAIL — the one mention is not the canonical claim:`);
+  console.log(`      ${mentions[0].replace(/\s+/g, " ").trim().slice(0, 160)}`);
+  console.log(`    Expected the form "which <N> of <M> compiled entries do not ...".`);
+  console.log(`    A shape this gate cannot read is a shape it cannot check.`);
+  process.exit(1);
+}
+
+const [, saidN, saidM] = claim;
+console.log(`  README says: ${saidN} of ${saidM}`);
+if (num(saidN) !== rejected || num(saidM) !== total) {
+  console.log(`\n  V-FLAG DISCLOSURE FAIL — the published pair is not the measured one`);
+  console.log(`    README   ${saidN} of ${saidM}`);
   console.log(`    measured ${fmt(rejected)} of ${fmt(total)}`);
-  if (claims.length > 1) {
-    console.log(`    ${claims.length} occurrences of the claim were graded; ${wrong.length} disagree.`);
-  }
   console.log(`    Update the sentence to the measured pair, or explain why the`);
   console.log(`    measurement changed. Do not edit one number to match the other.`);
   process.exit(1);
 }
-console.log(`  V-FLAG DISCLOSURE OK (${claims.length} occurrence(s), all agreeing)`);
+console.log("  V-FLAG DISCLOSURE OK (one mention, canonical, matching the measurement)");

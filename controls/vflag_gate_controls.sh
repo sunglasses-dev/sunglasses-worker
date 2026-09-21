@@ -37,6 +37,25 @@ shapes = {
     # the claim exists ONLY inside a comment: a commented-out disclosure is none
     "only_comment":  (r.replace("which 863 of 1,587 compiled entries do not",
                                 "<!-- which 863 of 1,587 compiled entries do not -->"), 1),
+    # ROUND 5, the allowlist. These two must fail for DIFFERENT REASONS, and the
+    # harness prints which, because "both red" would hide the whole point: one
+    # is caught by COUNT without its truth ever being considered, the other by
+    # MISMATCH against the measurement.
+    #
+    # A second sentence about the v flag, contradicting the first in wording the
+    # old matcher never graded. Caught BY COUNT.
+    "second_mention": (r.replace(
+        "compiled entries do not\n",
+        "compiled entries do not\n\nNote for operators: in practice only 400 of "
+        "1,587 entries reject the v flag, so the number above is conservative.\n", 1), 1),
+    # A second sentence that carries no number at all -- a hedge. Still two
+    # answers, still caught BY COUNT, and nothing about it is gradeable.
+    "second_mention_no_number": (r.replace(
+        "compiled entries do not\n",
+        "compiled entries do not\n\nIn practice the v flag limitation affects "
+        "far fewer entries than that.\n", 1), 1),
+    # The ONLY mention, and its pair is wrong. Caught BY MISMATCH.
+    "only_mention_wrong": (r.replace("863 of 1,587", "862 of 1,587"), 1),
 }
 for n, (text, code) in shapes.items():
     (w / f"readme_{n}.md").write_text(text)
@@ -49,16 +68,24 @@ run_gate () { # $1 = gate file, $2 = shape
   echo $?
 }
 
-printf '%-16s %-9s %-10s %s\n' SHAPE EXPECT NEW OLD
+printf '%-26s %-9s %-10s %-8s %s\n' SHAPE EXPECT NEW OLD 'FAILED...'
 fail=0
-for s in baseline wrong rephrase decoy_comment duplicate only_comment; do
+for s in baseline wrong rephrase decoy_comment duplicate only_comment \
+         second_mention second_mention_no_number only_mention_wrong; do
   want=$(cat "$WORK/expect_$s")
   got=$(run_gate "$WORK/new_gate.mjs" "$s")
   oldgot="-"
   [ -n "$OLD" ] && oldgot=$(run_gate "$WORK/old_gate.mjs" "$s")
   mark=""
   if [ "$got" != "$want" ]; then mark="  <-- NEW GATE WRONG"; fail=1; fi
-  printf '%-16s %-9s %-10s %s%s\n' "$s" "$want" "$got" "$oldgot" "$mark"
+  why=""
+  if [ "$got" != "0" ]; then
+    if grep -q "BY COUNT" "$WORK/$s.new_gate.log" 2>/dev/null; then why="by COUNT"
+    elif grep -q "not the measured one" "$WORK/$s.new_gate.log" 2>/dev/null; then why="by MISMATCH"
+    elif grep -q "not the canonical claim" "$WORK/$s.new_gate.log" 2>/dev/null; then why="by SHAPE"
+    else why="no mention"; fi
+  fi
+  printf '%-26s %-9s %-10s %-8s %s%s\n' "$s" "$want" "$got" "$oldgot" "$why" "$mark"
 done
 echo
 if [ -n "$OLD" ]; then
