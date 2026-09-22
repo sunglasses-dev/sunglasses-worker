@@ -45,7 +45,21 @@ if (!cdir) { console.log("usage: evaluate_candidates.mjs <candidates-dir>"); pro
 // back as a candidate is a defect the channel lane shipped and then fixed; it
 // does not get to happen twice.
 const files = readdirSync(cdir).filter((f) => f.endsWith(".json") && !f.startsWith("_")).sort();
-if (!files.length) { console.log(`no candidates in ${cdir}`); process.exit(0); }
+// AN EMPTY CANDIDATE SET IS NOT A PASSING ONE. This exited 0 -- so a renamed
+// directory, a changed extension, or the `_` filter widening by accident made
+// the evaluator report SUCCESS having evaluated nothing, and an exit code is
+// what a gate reads. The same shape has now been found three times in this
+// codebase in one day: an FP sweep that came back clean over a rule set that
+// matched nothing, a probe whose subject set was empty printing zeros, and a
+// mutation battery whose verdict was `killed === mutants.length` with no
+// mutants built. "I could not measure" must exit differently from "I measured
+// and found nothing wrong".
+if (!files.length) {
+  console.log(`NO CANDIDATES in ${cdir} -- nothing was evaluated, so this is a`
+    + ` harness defect and not a clean run. Check the path, the .json suffix,`
+    + ` and that the files are not all '_'-prefixed harness output.`);
+  process.exit(2);
+}
 
 const work = mkdtempSync(join(tmpdir(), "worker-candidates-"));
 let cases;
@@ -135,4 +149,12 @@ for (const fn of files) {
 writeFileSync(join(cdir, "_results.json"), JSON.stringify(rows, null, 1));
 rmSync(work, { recursive: true, force: true });
 console.log(`\n${rows.length} candidate(s), ${bad} not as expected`);
+// Same reasoning at the other end: zero rows here means every candidate was
+// dropped after the count above, which is a harness fault wearing a clean
+// number -- `bad` is 0 because nothing survived to be judged.
+if (!rows.length) {
+  console.log(`ZERO ROWS EVALUATED despite ${files.length} candidate file(s) --`
+    + ` harness defect, not a clean result.`);
+  process.exit(2);
+}
 process.exit(bad ? 1 : 0);
