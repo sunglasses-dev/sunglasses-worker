@@ -1,0 +1,1 @@
+{"name":"25-table-html-break","expect":"refuse","why":"An HTML line break joins a contradictory table to the canonical claim.","readme":"The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept.<br>\n| v flag rejections | 400 of 1,587 |\n"}

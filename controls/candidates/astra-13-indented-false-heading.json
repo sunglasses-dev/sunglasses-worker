@@ -1,0 +1,6 @@
+{
+  "name": "astra-13-indented-false-heading",
+  "expect": "refuse",
+  "why": "Three-space-indented ATX heading is a visible block boundary; tests the heading fix shape.",
+  "readme": "The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept\n   # Only 400 of 1,587 entries reject the v flag."
+}

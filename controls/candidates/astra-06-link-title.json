@@ -1,0 +1,6 @@
+{
+  "name": "astra-06-link-title",
+  "expect": "refuse",
+  "why": "The canonical claim occurs only in link title metadata, not its visible label.",
+  "readme": "[neutral](https://example.invalid/ \"The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept.\")"
+}

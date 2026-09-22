@@ -1,0 +1,106 @@
+{
+  "_comment": [
+    "REVIEWED CONTRACT for what a compiled rule must carry. ASTRA, PR #24 round 1:",
+    "a derivation cannot be the completeness authority. A variable-name heuristic",
+    "missed three real matcher reads, and an unrelated dict named `p` plus a module",
+    "with PATTERNS in a COMMENT each produced a false kill on a correct artefact.",
+    "Dictionary spelling is not evidence of access to a pattern dictionary.",
+    "",
+    "So the authority is this file, and the gate FAILS CLOSED on any source key it",
+    "does not classify: a new pattern field cannot ship until someone puts it here",
+    "as consulted or as metadata. Derivation still runs and is reported as",
+    "DIAGNOSTIC evidence beside it, never as the verdict.",
+    "",
+    "ROUND 2 WAS WRONG ABOUT THREE OF ITS FOUR METADATA KEYS, and gate (c) was",
+    "green for all three, because (c) grades the artefact against this file and",
+    "this file's metadata bucket was an assertion nobody had executed. Measured",
+    "2026-09-21 over the 136-case parity corpus, deleting each key from the",
+    "compiled rule set: `category` changed WHICH findings fire in 11 cases, and",
+    "`name` and `description` changed 43 finding records each. Only `mechanism`",
+    "was inert. controls/metadata_is_measured.mjs now re-measures the remaining",
+    "metadata keys on every run, so `metadata` is a measurement rather than a",
+    "claim. A reader that grades itself is what this whole file exists to stop.",
+    "",
+    "WHAT THAT CONTROL DOES AND DOES NOT ESTABLISH (ASTRA round 3, adopted): it",
+    "compares finding IDs, finding RECORDS and the decision over a 136-case",
+    "corpus. That is neither byte-identical whole-output comparison nor enough",
+    "cases to establish universal inertness, so the honest statement is: no",
+    "finding-ID, finding-record or decision difference was observed on these",
+    "cases. Point it at an older contract with `--contract <path>` to watch it",
+    "fail; a control that can only run green proves nothing about detection.",
+    "",
+    "The derivation found none of this because it scopes the PYTHON matcher while",
+    "these read sites are in the JS Worker engine. That is a boundary of the",
+    "derivation AS IT EXISTS, not a proof that no static analysis could reach",
+    "them -- extending the analysis to the Worker source is possible.",
+    "",
+    "`where` is the lowering. `record` means the compiler must emit the same key on",
+    "the compiled record with an equal value. `regex[].anchors` and `regex[].span`",
+    "are the measured lowering of the anchored lane: EVERY compiled regex entry of",
+    "an anchored rule carries the same anchor set and span (7 rules, 13 entries,",
+    "measured on v0.5.9). Regex SEMANTICS stay with the behavioural parity gates;",
+    "this file is about fields surviving compilation, not about what they match."
+  ],
+  "contract_version": 1,
+  "measured_against": "v0.5.9 / 7340fceba38ef441ae487d34dbd6889fcf60b3a5",
+  "consulted": {
+    "id": {
+      "where": "record"
+    },
+    "channel": {
+      "where": "record"
+    },
+    "keywords": {
+      "where": "record",
+      "default_when_source_omits": [],
+      "compare": "source_minus_keyword_denylist",
+      "reason": "measured on v0.5.9, 1554/1554 exact: the compiler emits the source's keywords minus SunglassesEngine.KEYWORD_DENYLIST, order preserved -- the same FP-guard strip the engine applies at index-build time (engine.py:468). The denylist is READ FROM THE TAGGED SOURCE, never listed here, so a change to it cannot silently pass this gate."
+    },
+    "severity": {
+      "where": "record"
+    },
+    "negation_immune": {
+      "where": "record",
+      "default_when_source_omits": false,
+      "reason": "measured on v0.5.9: 1548 rules omit it and the compiler emits false"
+    },
+    "match_on": {
+      "where": "record"
+    },
+    "tier": {
+      "where": "record"
+    },
+    "regex": {
+      "where": "record",
+      "compare": "cardinality_only",
+      "reason": "the compiler transforms sources and adds guards/requires; entry COUNT is checked here and semantics are the parity gates' job"
+    },
+    "anchor_terms": {
+      "where": "regex[].anchors",
+      "compare": "set_on_every_entry"
+    },
+    "anchor_span": {
+      "where": "regex[].span",
+      "compare": "equal_on_every_entry"
+    },
+    "category": {
+      "where": "record",
+      "reason": "reaches control flow twice, both measured 2026-09-21: engine.js:588/593 suppress a mechanism when a carrier of the SAME category already fired at >= severity, and policy.js:73-74 group findings by category for the corroboration rule. Deleting it leaves GLS-MECH-001 unsuppressed in 11 of 136 corpus cases. Filed as metadata in round 2 on no measurement."
+    },
+    "name": {
+      "where": "record",
+      "reason": "copied onto every finding at engine.js:423. It steers nothing -- 0 id and 0 decision deltas -- but deleting it changes 43 of the 136 corpus results, so a compiler that dropped it would rewrite the JSON a consumer reads while gate (c) stayed green."
+    },
+    "description": {
+      "where": "record",
+      "reason": "copied onto every finding at engine.js:426; same measurement as `name`, 43 changed records, 0 id and 0 decision deltas."
+    }
+  },
+  "metadata": {
+    "_comment": "Consulted by nothing AND emitted by nothing -- the compiler MAY drop these, and `mechanism` is dropped on the one rule that carries it. If it emits one it must EQUAL the source, and it may never invent one the source does not carry. controls/metadata_is_measured.mjs deletes every key listed here from the compiled rule set and requires the engine's finding IDs, finding records and decision to be unchanged over the parity corpus. WHAT THAT GREEN IS NOT (ASTRA round 4, narrowing round 3's narrowing): it is an observation about THIS ARTEFACT, not an enforced invariant. The gate does not make the compiler drop the key, does not assert a required rule total, and does not compare source-present against compiled-absent. It would also pass a key that HAS carriers if deleting them happened to produce no delta on this corpus. So its green is not proof that dropping the field preserves Python or Worker behaviour. Adding a key here without that control going green is how round 2 shipped three wrong ones; reading its green as an invariant would be the next mistake.",
+    "keys": [
+      "mechanism"
+    ],
+    "proven_inert_by": "controls/metadata_is_measured.mjs"
+  }
+}

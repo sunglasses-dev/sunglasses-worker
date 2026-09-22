@@ -1,0 +1,1 @@
+{"name":"15-code-phrase","expect":"refuse","why":"A code span wraps both words of the flag name.","readme":"The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept.\n\nOnly 400 of 1,587 entries reject the `v flag`."}

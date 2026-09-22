@@ -1,0 +1,6 @@
+{
+  "name": "astra-29-html-div-false",
+  "expect": "refuse",
+  "why": "HTML div produces a block boundary; same two claims as paragraph and heading variants.",
+  "readme": "The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept\n<div>Only 400 of 1,587 entries reject the v flag.</div>"
+}

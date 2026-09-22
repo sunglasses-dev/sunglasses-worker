@@ -1,0 +1,6 @@
+{
+  "name": "astra-15-ordered-false-list",
+  "expect": "refuse",
+  "why": "Ordered list is a visible block boundary; tests a second list marker shape.",
+  "readme": "The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept\n1. Only 400 of 1,587 entries reject the v flag."
+}

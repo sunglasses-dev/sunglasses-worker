@@ -1,0 +1,1 @@
+{"name":"23-canonical-no-period","expect":"accept","why":"Control: canonical claim without final punctuation.","readme":"The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept"}

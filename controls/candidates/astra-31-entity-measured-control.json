@@ -1,0 +1,6 @@
+{
+  "name": "astra-31-entity-measured-control",
+  "expect": "accept",
+  "why": "Entity decoding is correct in normal text; contrasts the same entity inside a code span.",
+  "readme": "The engine uses the `v` flag's set subtraction, which &#56;63 of 1,587 compiled entries do not currently accept."
+}

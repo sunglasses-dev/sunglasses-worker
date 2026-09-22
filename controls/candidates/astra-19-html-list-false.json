@@ -1,0 +1,6 @@
+{
+  "name": "astra-19-html-list-false",
+  "expect": "refuse",
+  "why": "HTML list items create visible block boundaries without sentence punctuation.",
+  "readme": "The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept\n<ul><li>Only 400 of 1,587 entries reject the v flag.</li></ul>"
+}

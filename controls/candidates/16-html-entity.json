@@ -1,0 +1,1 @@
+{"name":"16-html-entity","expect":"refuse","why":"HTML entity renders as the flag letter in a false count.","readme":"The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept.\n\nOnly 400 of 1,587 entries reject the &#118; flag."}

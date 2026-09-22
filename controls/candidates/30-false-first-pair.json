@@ -1,0 +1,1 @@
+{"name":"30-false-first-pair","expect":"refuse","why":"A false quantity precedes the true canonical pair in a single grammatical sentence.","readme":"Only 400 of 1,587 entries reject the v flag, even though the engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept."}

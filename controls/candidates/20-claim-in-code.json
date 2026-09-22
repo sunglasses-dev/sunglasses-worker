@@ -1,0 +1,1 @@
+{"name":"20-claim-in-code","expect":"refuse","why":"The canonical text is explicitly marked as outdated code while current prose publishes the false quantity.","readme":"# Outdated example\n\n```\nThe engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept.\n```\n\nCurrent rejected-entry count: 400 of 1,587.\n"}

@@ -1,0 +1,6 @@
+{
+  "name": "astra-08-escaped-entity",
+  "expect": "refuse",
+  "why": "Escaping the entity ampersand displays entity spelling rather than the measured number.",
+  "readme": "The engine uses the `v` flag's set subtraction, which \\&#56;63 of 1,587 compiled entries do not currently accept."
+}
