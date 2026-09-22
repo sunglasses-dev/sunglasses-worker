@@ -1,0 +1,6 @@
+{
+  "name": "astra-35-reference-before-text",
+  "expect": "refuse",
+  "why": "An unused reference-definition label contains the sole canonical statement, followed by ordinary body text.",
+  "readme": "[The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept.]: https://example.invalid/\n\nHello reader."
+}

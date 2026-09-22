@@ -1,0 +1,6 @@
+{
+  "name": "astra-03-reference-title",
+  "expect": "refuse",
+  "why": "The sole canonical claim is in an unused Markdown link-definition title, not displayed body text.",
+  "readme": "[unused]: https://example.invalid/ \"The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept.\""
+}

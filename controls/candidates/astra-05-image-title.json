@@ -1,0 +1,6 @@
+{
+  "name": "astra-05-image-title",
+  "expect": "refuse",
+  "why": "The canonical claim occurs only in image title metadata, not its displayed alt text.",
+  "readme": "![neutral](https://example.invalid/image.png \"The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept.\")"
+}

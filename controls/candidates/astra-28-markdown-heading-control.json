@@ -1,0 +1,6 @@
+{
+  "name": "astra-28-markdown-heading-control",
+  "expect": "refuse",
+  "why": "Matched plain Markdown heading control for HTML heading variant.",
+  "readme": "The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept\n## Only 400 of 1,587 entries reject the v flag."
+}

@@ -1,0 +1,6 @@
+{
+  "name": "astra-30-emphasis-measured-control",
+  "expect": "accept",
+  "why": "The measured number uses actual Markdown emphasis rather than literal emphasis markers inside code.",
+  "readme": "The engine uses the `v` flag's set subtraction, which 8**63** of 1,587 compiled entries do not currently accept."
+}

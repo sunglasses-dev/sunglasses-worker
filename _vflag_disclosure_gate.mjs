@@ -149,10 +149,33 @@ const readme = renderAsReaderSees(readmeRaw);
 //   32-html-hidden-claim CSS-hidden but structurally present text: "hidden"
 //                        is a rendering property this gate does not compute.
 //
-// FOUR OF THOSE NINE ARE REACHABLE BY A MARKDOWN PARSER and none by another
-// regex. If this ever needs to be closed, the answer is to render the README
-// with a real parser and grade the output, NOT to widen anything here. The
-// remaining five are prose-truth problems and are out of reach of any gate.
+// WHAT I CLAIMED HERE WAS TOO STRONG, and round 6 was right to reject it.
+// The line said "four of those nine are reachable by a markdown parser and
+// NONE by another regex". That is a categorical impossibility assertion and I
+// cannot support it: a parser supplies STRUCTURE, not prose truth, table
+// semantics or CSS visibility, and those four do not form one category a
+// parser alone resolves. A finite set CAN be refused by a restricted
+// syntactic publishing policy without proving arbitrary prose truth.
+//
+// What is actually true: these nine are not reached by THIS gate's shape, and
+// widening its matchers to chase them is the losing game. That is a statement
+// about this gate, not about what is possible.
+//
+// AND DECLARING EXCEPTIONS IS NOT ENFORCING A BOUNDARY, which is the real
+// finding. Round 6 authored 35 candidates and found THREE NEW FAMILIES this
+// gate accepts: canonical content in unused reference definitions; literal
+// code content read as active presentation; and contradictory claims across
+// HTML block elements. Ten cases. Each is a rendering context the normaliser
+// treats as content, so "the number a reader is given" is still not pinned
+// down -- it is pinned down for the contexts I thought of.
+//
+// THE DIRECTION, for the Friday decision and NOT yet implemented: stop
+// grading prose and ENFORCE a form. Generate the disclosure into a delimited
+// block from the measurement, validate THAT block, and require the quantity to
+// appear nowhere else in the rendered text -- the count rule already does the
+// second half. Then the boundary is enforced by construction rather than
+// declared exception by exception, and what a green means can be stated
+// exactly.
 //
 // A green here means: the canonical sentence, AS A READER SEES IT, carries the
 // measured pair, and the README mentions the v flag exactly once. It does NOT

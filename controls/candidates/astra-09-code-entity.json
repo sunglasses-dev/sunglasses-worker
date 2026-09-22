@@ -1,0 +1,6 @@
+{
+  "name": "astra-09-code-entity",
+  "expect": "refuse",
+  "why": "Entities in inline code remain literal; a reader is not given the measured numerator.",
+  "readme": "The engine uses the `v` flag's set subtraction, which `&#56;63` of 1,587 compiled entries do not currently accept."
+}
