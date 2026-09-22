@@ -48,7 +48,64 @@ for (const rule of m.PATTERNS) {
 // one. Two occurrences that agree are fine; the count is not the rule, the
 // agreement is.
 const readmeRaw = readFileSync(`${worker}README.md`, "utf8");
-const readme = readmeRaw.replace(/<!--[\s\S]*?-->/g, "");
+
+// ── THE SUBJECT IS THE RENDERED TEXT, and round 5 is why ────────────────────
+//
+// This gate's own purpose, stated above, is "the number a READER is given".
+// A reader is given RENDERED markdown. So `**863**`, `&#56;63`, a non-breaking
+// space, a link label, an image's alt text and a hidden `<span>` are
+// PRESENTATION -- the reader sees the claim, the byte-level splitter did not.
+// Ten of ASTRA's nineteen false accepts were exactly that, plus a markdown
+// BLOCK boundary (a table or heading on the next line) being a boundary a
+// reader sees even where there is no full stop.
+//
+// THIS IS A CHANGE OF SUBJECT, ONCE -- not a sixth widening of a matcher.
+// Rounds 3, 4 and 5 each widened a pattern after a new wording got past it,
+// which is the denylist game the channel-vocabulary PR lost four rounds to.
+// Normalising to what a reader sees is not "one more shape": it is reading the
+// thing the gate always said it was reading. After this, what remains
+// unreachable is DECLARED (below), not chased.
+//
+// Measured on ASTRA's 32 candidates, preserved in controls/candidates/:
+// 19 false accepts -> 9, ten fixed, ZERO honest controls broken.
+const renderAsReaderSees = (s) => s
+  .replace(/<!--[\s\S]*?-->/g, "")                       // comments: never shown
+  .replace(/<[^>]+>/g, " ")                               // tags, hidden or not
+  .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(+d))
+  .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+  .replace(/&nbsp;/gi, " ")
+  .replace(/\u00a0/g, " ")
+  .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")              // image -> alt text
+  .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")               // link  -> label
+  .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, "$1")           // emphasis
+  .replace(/`/g, "");                                     // code spans
+
+// A markdown block opener ends the preceding unit. A table row, heading, list
+// item, fence or quote on the next line is a visible break to a reader even
+// when the sentence before it carries no full stop -- which is how a canonical
+// claim and a contradicting table became ONE "sentence" for the old splitter.
+const BLOCK_OPEN = /^\s*(\||#{1,6}\s|[-*+]\s|\d+\.\s|```|>\s)/;
+const readerUnits = (text) => {
+  const blocks = [];
+  let cur = [];
+  for (const line of text.split("\n")) {
+    const opens = BLOCK_OPEN.test(line);
+    if (opens || line.trim() === "") {
+      if (cur.length) blocks.push(cur.join(" "));
+      cur = [];
+    }
+    if (line.trim() !== "") cur.push(line);
+    if (opens) { blocks.push(line); cur = []; }
+  }
+  if (cur.length) blocks.push(cur.join(" "));
+  const out = [];
+  for (const b of blocks)
+    for (const part of b.split(/(?<=[.!?])\s+/))
+      if (part.trim()) out.push(part);
+  return out;
+};
+
+const readme = renderAsReaderSees(readmeRaw);
 
 // ROUND 5 VERDICT — THIS GATE IS RESCOPED, NOT FIXED. READ THIS BEFORE
 // TRUSTING ITS GREEN.
@@ -72,9 +129,34 @@ const readme = readmeRaw.replace(/<!--[\s\S]*?-->/g, "");
 //   5. HIDDEN OR STALE canonical text -- in an outdated example or a hidden
 //      element, while the visible prose contradicts it.
 //
-// Classes 2, 3 and 4 are not boundary problems, so no amount of better
-// splitting reaches them. A sixth widening would be the fifth round of the same
-// losing game: grading prose for truth cannot be won.
+// ── WHAT REMAINS UNREACHABLE, DECLARED (2026-09-22) ────────────────────────
+//
+// Reading the RENDERED text closed ten of those nineteen. NINE REMAIN, and
+// they are declared here rather than chased, because chasing them is the
+// denylist game again:
+//
+//   19-same-sentence     ONE grammatical sentence carrying two contradictory
+//                        counts. "One sentence = one claim" is false in prose,
+//                        and no splitter reaches it. THIS IS THE HARD LIMIT.
+//   18-table-context     subject and quantity distributed across table cells,
+//   30-false-first-pair  so no single unit carries both.
+//   17-reordered-words   the canonical claim reworded so the CLAIM regex,
+//   20-claim-in-code     which is an allowlist of ONE form, does not match it;
+//                        widening that regex is the losing game by definition.
+//   06-fence-joined      a fenced block or image alt text adjacent to an
+//   07-alt-joined        unpunctuated claim: reachable ONLY by rendering
+//   24-inline-image      markdown properly, which is a parser, not a gate.
+//   32-html-hidden-claim CSS-hidden but structurally present text: "hidden"
+//                        is a rendering property this gate does not compute.
+//
+// FOUR OF THOSE NINE ARE REACHABLE BY A MARKDOWN PARSER and none by another
+// regex. If this ever needs to be closed, the answer is to render the README
+// with a real parser and grade the output, NOT to widen anything here. The
+// remaining five are prose-truth problems and are out of reach of any gate.
+//
+// A green here means: the canonical sentence, AS A READER SEES IT, carries the
+// measured pair, and the README mentions the v flag exactly once. It does NOT
+// mean the README is honest. That distinction is the whole scope.
 //
 // **A README-honesty gate cannot exist. Only a this-sentence-matches-the-
 // measurement gate can, and that is what this is.** Multiplicity is a NECESSARY
@@ -102,7 +184,7 @@ const readme = readmeRaw.replace(/<!--[\s\S]*?-->/g, "");
 // across 41 using a digit shorthand). A rule keyed on that marker fails the
 // product on its first run. Keyed on the v flag, the real README has exactly
 // one mention.
-const SENTENCES = readme.split(/(?<=[.!?])\s+|\n\n/).filter((x) => x.trim());
+const SENTENCES = readerUnits(readme);
 const NAMES_VFLAG = /`?\bv\b`?[\s\u00a0]*flag|\bv-flag\b/i;
 const mentions = SENTENCES.filter((x) => NAMES_VFLAG.test(x));
 

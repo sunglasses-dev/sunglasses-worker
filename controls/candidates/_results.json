@@ -1,0 +1,226 @@
+[
+ {
+  "name": "01-canonical",
+  "expect": "accept",
+  "got": "accept",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "02-plain-contradiction",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "03-table-joined",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "04-list-joined",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "05-heading-joined",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "06-fence-joined",
+  "expect": "refuse",
+  "got": "accept",
+  "matched": false,
+  "detail": ""
+ },
+ {
+  "name": "07-alt-joined",
+  "expect": "refuse",
+  "got": "accept",
+  "matched": false,
+  "detail": ""
+ },
+ {
+  "name": "08-table-separated",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "09-list-separated",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "10-heading-separated",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "11-fence-separated",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "12-alt-separated",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "13-hyphenated",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "14-bold-token",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "15-code-phrase",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "16-html-entity",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "17-reordered-words",
+  "expect": "refuse",
+  "got": "accept",
+  "matched": false,
+  "detail": ""
+ },
+ {
+  "name": "18-table-context",
+  "expect": "refuse",
+  "got": "accept",
+  "matched": false,
+  "detail": ""
+ },
+ {
+  "name": "19-same-sentence",
+  "expect": "refuse",
+  "got": "accept",
+  "matched": false,
+  "detail": ""
+ },
+ {
+  "name": "20-claim-in-code",
+  "expect": "refuse",
+  "got": "accept",
+  "matched": false,
+  "detail": ""
+ },
+ {
+  "name": "21-canonical-heading",
+  "expect": "accept",
+  "got": "accept",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "22-canonical-list",
+  "expect": "accept",
+  "got": "accept",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "23-canonical-no-period",
+  "expect": "accept",
+  "got": "accept",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "24-inline-image",
+  "expect": "refuse",
+  "got": "accept",
+  "matched": false,
+  "detail": ""
+ },
+ {
+  "name": "25-table-html-break",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "26-rendered-emphasis",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "27-rendered-link",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "28-nonbreaking-space",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "29-heading-before",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "30-false-first-pair",
+  "expect": "refuse",
+  "got": "accept",
+  "matched": false,
+  "detail": ""
+ },
+ {
+  "name": "31-canonical-comment",
+  "expect": "refuse",
+  "got": "refuse",
+  "matched": true,
+  "detail": ""
+ },
+ {
+  "name": "32-html-hidden-claim",
+  "expect": "refuse",
+  "got": "accept",
+  "matched": false,
+  "detail": ""
+ }
+]

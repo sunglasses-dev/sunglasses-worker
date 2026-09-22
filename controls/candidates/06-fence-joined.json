@@ -1,0 +1,1 @@
+{"name":"06-fence-joined","expect":"refuse","why":"A code fence joined without a sentence terminator publishes a contradictory runtime metric.","readme":"The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept\n```text\nEntries rejecting the v flag: 400 of 1,587\n```\n"}

@@ -1,0 +1,1 @@
+{"name":"32-html-hidden-claim","expect":"refuse","why":"Canonical claim is hidden by semantic HTML while visible prose reports a false quantity.","readme":"<div hidden>The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept.</div>\n\nCurrent rejected-entry count: 400 of 1,587.\n"}
