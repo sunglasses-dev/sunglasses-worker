@@ -1,0 +1,1 @@
+{"name":"18-table-context","expect":"refuse","why":"A table splits the subject and the false quantity across rows.","readme":"The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept.\n\n| Flag | Entries rejecting it |\n| --- | --- |\n| `v` | 400 of 1,587 |\n"}

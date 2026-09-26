@@ -1,0 +1,6 @@
+{
+  "name": "astra-17-html-paragraph-false",
+  "expect": "refuse",
+  "why": "HTML paragraph creates a visible block boundary without a punctuation separator.",
+  "readme": "The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept\n<p>Only 400 of 1,587 entries reject the v flag.</p>"
+}

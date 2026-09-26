@@ -1,0 +1,6 @@
+{
+  "name": "astra-22-double-underscore-honest",
+  "expect": "accept",
+  "why": "Honest emphasis control in an alternate supported presentation.",
+  "readme": "The engine uses the `v` flag's set subtraction, which __863__ of 1,587 compiled entries do not currently accept."
+}

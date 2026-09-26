@@ -1,0 +1,6 @@
+{
+  "name": "astra-01-honest-control",
+  "expect": "accept",
+  "why": "Independent round-six baseline using the supplied canonical input.",
+  "readme": "The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept."
+}

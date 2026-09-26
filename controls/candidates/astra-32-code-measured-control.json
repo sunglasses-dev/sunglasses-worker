@@ -1,0 +1,6 @@
+{
+  "name": "astra-32-code-measured-control",
+  "expect": "accept",
+  "why": "Inline code containing the actual measured number is an honest control.",
+  "readme": "The engine uses the `v` flag's set subtraction, which `863` of 1,587 compiled entries do not currently accept."
+}

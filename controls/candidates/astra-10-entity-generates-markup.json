@@ -1,0 +1,6 @@
+{
+  "name": "astra-10-entity-generates-markup",
+  "expect": "refuse",
+  "why": "Decoded angle brackets are visible characters, not a new HTML element to discard.",
+  "readme": "The engine uses the `v` flag's set subtraction, which 8&lt;b&gt;6&lt;/b&gt;3 of 1,587 compiled entries do not currently accept."
+}

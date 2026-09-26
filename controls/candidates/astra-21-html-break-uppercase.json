@@ -1,0 +1,6 @@
+{
+  "name": "astra-21-html-break-uppercase",
+  "expect": "refuse",
+  "why": "Uppercase HTML BR creates the same visible break.",
+  "readme": "The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept<BR>Only 400 of 1,587 entries reject the v flag."
+}

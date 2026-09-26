@@ -1,0 +1,1 @@
+{"name":"01-canonical","expect":"accept","why":"Control: measured canonical claim.","readme":"The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept."}

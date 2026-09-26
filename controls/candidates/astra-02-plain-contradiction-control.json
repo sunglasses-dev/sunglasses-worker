@@ -1,0 +1,6 @@
+{
+  "name": "astra-02-plain-contradiction-control",
+  "expect": "refuse",
+  "why": "Round-six false-claim control, retained verbatim to anchor presentation mutations.",
+  "readme": "The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept.\n\nOnly 400 of 1,587 entries reject the v flag."
+}

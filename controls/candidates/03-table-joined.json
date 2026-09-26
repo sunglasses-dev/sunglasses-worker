@@ -1,0 +1,1 @@
+{"name":"03-table-joined","expect":"refuse","why":"A table joined by one newline to an unpunctuated canonical claim publishes the wrong quantity.","readme":"The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept\n| Runtime quantity | Count |\n| --- | --- |\n| Entries rejecting the v flag | 400 of 1,587 |\n"}

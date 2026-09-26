@@ -1,0 +1,1 @@
+{"name":"24-inline-image","expect":"refuse","why":"Inline image alt text in the same unpunctuated block carries a misleading count.","readme":"The engine uses the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not currently accept ![v flag rejections: 400 of 1,587](runtime.png)\n"}

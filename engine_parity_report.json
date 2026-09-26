@@ -1,6 +1,14 @@
 {
  "verdict_fail": [],
- "id_delta": [],
+ "id_delta": [
+  [
+   "clean:README.md",
+   [
+    "GLS-MCP-016"
+   ],
+   []
+  ]
+ ],
  "cases": [
   "attack:ignore-previous",
   "attack:rot13",
@@ -126,6 +134,7 @@
   "corpus:rust-lang__rust.md",
   "corpus:semgrep__semgrep.md",
   "corpus:strapi__strapi.md",
+  "corpus:sunglasses-dev__env-var-docs-shapes.md",
   "corpus:sunglasses-dev__sunglasses.md",
   "corpus:supabase__supabase.md",
   "corpus:sveltejs__svelte.md",

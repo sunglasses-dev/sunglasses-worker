@@ -89,6 +89,17 @@ if os.path.isdir(fp_corpus):
         txt = open(os.path.join(fp_corpus, fn), encoding="utf-8", errors="replace").read()
         CASES.append({"name": f"corpus:{fn}", "text": txt, "channel": "file"})
 
+# The corpus above is the only corpus this repo agrees on, so anything else that
+# needs it asks for it here rather than rebuilding a lookalike. --dump-cases
+# writes it and exits before either engine runs: a caller that wants the cases
+# must not pay for, or be failed by, a parity comparison it did not ask for.
+if "--dump-cases" in sys.argv:
+    dest = sys.argv[sys.argv.index("--dump-cases") + 1]
+    with open(dest, "w", encoding="utf-8") as f:
+        json.dump(CASES, f)
+    print(f"{len(CASES)} cases -> {dest}")
+    sys.exit(0)
+
 # ---- run Python side ----
 eng = SunglassesEngine()
 py_results = []
