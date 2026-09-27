@@ -1,14 +1,6 @@
 {
  "verdict_fail": [],
- "id_delta": [
-  [
-   "clean:README.md",
-   [
-    "GLS-MCP-016"
-   ],
-   []
-  ]
- ],
+ "id_delta": [],
  "cases": [
   "attack:ignore-previous",
   "attack:rot13",
