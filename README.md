@@ -58,16 +58,20 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   bounds it there is the Workers CPU limit and the 30 scans per minute per IP
   cap, nothing in the engine.
 
-- **Word boundaries, OPEN and bounded.** `\w` is now written as
+- **Word boundaries, NARROWED.** `\w` is now written as
   `[\p{L}\p{N}_]`, chosen by enumerating every Unicode scalar. That is Python's
   class as a FORM and not as a membership: under the real flags it admits 4,658
   code points Python's does not, and the difference runs in both directions on
   U+0345. The bullet below states it. This sentence used to say `\w` simply was
   Python's own class, which asserted an equality the enumeration disproves.
 
-  `\b` is still ASCII: the faithful rewrite is a pair of lookarounds over that
-  class, and substituting it for every boundary in the 1,546 patterns of 0.5.8 ran V8's regex compiler
-  out of heap before a single document was scanned. 962 of the 1,565 shipped
+  `\b` and `\B` are written as a pair of lookarounds over a narrow edge class,
+  ASCII word characters plus U+0130 and U+0131, which under the real flags also
+  holds U+017F and U+212A. Those four are the only non-ASCII letters an ASCII
+  rule letter matches, so a word such as one starting with U+0130 now starts
+  where Python says it does. The faithful rewrite over the full word class ran
+  V8's regex compiler out of heap on 0.5.8 and is still not used. Any other
+  non-ASCII letter next to a boundary can still differ. 962 of the 1,565 shipped
   rules contain a boundary in a core or a guard, which is the number of rules
   this can reach rather than the number it changes. The earlier 924 counted
   core regex sources only and missed 38 rules whose boundary sits inside a
@@ -133,18 +137,19 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   contract, so either the contract narrows or the decoder changes. Calling it
   closed while the handler still accepts the input was the overstatement.
 
-- **Case equivalence, LITERALS CLOSED and RANGES OPEN, 2026-09-14.** Enumerated
-  across every ASCII letter, digit and underscore against all 1,112,064 scalars:
-  the entire difference was `i` also matching U+0130 and U+0131. The compiler
-  widens a literal `i` to that class and the regexes carry the `u` flag, which
-  also gives code point stepping rather than UTF-16 units.
+- **Case equivalence, LITERALS AND RANGES CLOSED.** Enumerated across every
+  ASCII letter, digit and underscore against all 1,112,064 scalars: the entire
+  difference was `i` also matching U+0130 and U+0131. The compiler widens a
+  literal `i` to that class and the regexes carry the `u` flag, which also gives
+  code point stepping rather than UTF-16 units.
 
-  That closes LITERALS only. A widening pass rewrites a literal; it cannot
-  rewrite a RANGE, so `[a-z]` and `[A-Z]` stay narrow here while Python's match
-  U+0130 and U+0131 under case-insensitive matching. Measured in both engines
-  directly. That drops a match Python makes, turning a block into an allow, and
-  133 rules across 140 compiled entries carry such a range. Enumerating literals
-  does not close a range, and the earlier CLOSED read as though it had.
+  A character class RANGE that covers `i` or `I`, such as `[a-z]`, `[A-Z]` or
+  `[h-j]`, now carries the same two code points inside the class, negated or
+  not. Twelve classes were enumerated against every scalar in both engines
+  after the change and each matches exactly the set Python matches. 152
+  compiled entries across 139 rules carry such a range. A class that covers no
+  `i` compiles byte for byte as before. Word boundaries next to these two
+  letters are not a class and are listed under word boundaries.
 
 - **Whitespace classes, NARROWED 2026-09-14.** Enumerated in both directions:
   Python also matches U+001C to U+001F and U+0085, JavaScript also matches

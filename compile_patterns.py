@@ -254,6 +254,11 @@ def convert(py_regex: str):
 DOTLESS_I = "\u0130\u0131"
 
 
+def _range_covers_i(lo: str, hi: str) -> bool:
+    """A literal class range `lo-hi` that contains `i` or `I`."""
+    return lo <= "i" <= hi or lo <= "I" <= hi
+
+
 def _widen_dotless_i(src: str) -> str:
     """Let a literal `i` match Python's whole equivalence class for it.
 
@@ -296,6 +301,18 @@ def _widen_dotless_i(src: str) -> str:
             in_class = True
         elif ch == "]":
             in_class = False
+        elif (in_class and src[i + 1:i + 2] == "-" and i + 2 < len(src)
+              and src[i + 2] not in "]\\" and _range_covers_i(ch, src[i + 2])):
+            # A RANGE covering `i` or `I`, e.g. `[a-z]`. Python's IGNORECASE
+            # lets it match U+0130 and U+0131 and `iu` does not (enumerated over
+            # every scalar; U+017F and U+212A already agree), which could turn a
+            # block into an allow. The two
+            # code points go into the same class after the range, which also
+            # keeps a NEGATED class right: `[^a-z]` under re.IGNORECASE does not
+            # match U+0130 in Python, and `[^a-z\u0130\u0131]` does not here.
+            out.append(src[i:i + 3] + DOTLESS_I)
+            i += 3
+            continue
         elif ch in "iI":
             out.append(ch + DOTLESS_I if in_class else "[" + ch + DOTLESS_I + "]")
             i += 1
@@ -415,6 +432,21 @@ WORD_NON_BOUNDARY = ("(?:(?<=[" + WORD_CLASS + "])(?=[" + WORD_CLASS + "])"
                      "|(?<![" + WORD_CLASS + "])(?![" + WORD_CLASS + "]))")
 
 
+# THE NARROW BOUNDARY. The full lookaround over WORD_CLASS runs V8 out of memory
+# (below), but the boundary only costs a FINDING where a letter the rule itself
+# matches sits at the edge, and the only non-ASCII letters an ASCII rule letter
+# matches under IGNORECASE are U+0130, U+0131, U+017F and U+212A. `\w` under
+# `iu` already holds the last two, so `[\w\u0130\u0131]` is the boundary that
+# makes those words start and end where Python says they do. Every other
+# non-ASCII letter keeps the ASCII boundary, which only ever adds a match
+# Python would not make, and stays disclosed.
+EDGE_CLASS = "\\w\u0130\u0131"
+EDGE_BOUNDARY = ("(?:(?<=[" + EDGE_CLASS + "])(?![" + EDGE_CLASS + "])"
+                 "|(?<![" + EDGE_CLASS + "])(?=[" + EDGE_CLASS + "]))")
+EDGE_NON_BOUNDARY = ("(?:(?<=[" + EDGE_CLASS + "])(?=[" + EDGE_CLASS + "])"
+                     "|(?<![" + EDGE_CLASS + "])(?![" + EDGE_CLASS + "]))")
+
+
 def _python_word_class(src: str) -> str:
     """Give the word shorthands Python notion of a word character."""
     keep = [(a, b) for a, b in _class_spans(src)
@@ -446,7 +478,13 @@ def _python_word_class(src: str) -> str:
             #
             # What remains observable: a word that STARTS or ENDS on a non-ASCII
             # letter, where Python sees a boundary and this does not. ASTRA's
-            # C02706 is exactly that shape.
+            # C02706 is exactly that shape. The narrow boundary above closes
+            # it for the letters a rule can match; outside a class only, where
+            # `\b` is a boundary and not a backspace.
+            if nxt in "bB" and not in_class:
+                out.append(EDGE_BOUNDARY if nxt == "b" else EDGE_NON_BOUNDARY)
+                i += 2
+                continue
             out.append(src[i:i + 2])
             i += 2
             continue

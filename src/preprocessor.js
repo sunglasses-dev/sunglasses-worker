@@ -10,10 +10,10 @@
 // what is left. Each entry below states its REACH, meaning the count of rules a
 // difference can touch, never the count it is known to change.
 export const LIMITATIONS = [
-  "Scope. Four rule-identity differences remain across the whole 13,028 pair corpus and all four are the ASCII word boundary case below. That is not output equality. 36 pairs still differ in the excerpt they return, and the classes listed here are the ones that have been observed rather than a proof that no other exists",
-  "ASCII word boundaries. 962 of 1,565 rules use a word boundary in a core or a guard, so a match can differ where a non-ASCII letter sits next to one. This is the reach of the difference rather than the count it changes, and it is where all four known corpus differences are",
+  "Scope. The four rule-identity differences that remained across the whole 13,028 pair corpus were all at a word boundary next to U+0130 or U+0131, and the engine, wide, channel and counterexample parity suites now read 0. That is not output equality. 36 pairs still differ in the excerpt they return, and the classes listed here are the ones that have been observed rather than a proof that no other exists",
+  "Word boundaries. 962 of 1,565 rules use a word boundary in a core or a guard. The boundary counts ASCII word characters and the four letters an ASCII rule letter folds to, U+0130, U+0131, U+017F and U+212A, as letters, where Python counts every Unicode letter, so a match can still differ where any other non-ASCII letter sits next to one. This is the reach of the difference rather than the count it changes",
   "Word class membership. The emitted class admits 4,658 code points Python's own does not, of which 4,657 are unassigned in the Python this was measured against and one, U+0345, is assigned. Under case-insensitive matching the positive class matches it where Python does not, and the NEGATED class fails to match it where Python does, so this can miss a finding as well as add one. Saying it can only over-match would be wrong. Reach is 386 rules across 390 compiled entries, being 380 carrier rules in 381 entries plus 6 mechanism rules in 9 entries",
-  "ASCII letter ranges. A literal A to Z or a to z range does not carry Python's case folding for U+0130 and U+0131, which can turn a block into an allow. Enumerating individual letters does not close a range. Reach is 133 rules",
+  "ASCII letter ranges. Closed. Under case-insensitive matching a character class range that covers i or I also matches U+0130 and U+0131, as Python does, in a negated class as well. Twelve classes enumerated against every scalar match the set Python matches exactly. Word boundaries next to these two letters are a separate line below",
   "Decimal digit shorthands. The digit class here misses 750 code points Python treats as digits, which can turn a block into an allow. Reach is 37 rules",
   "Unicode version skew. 28 case-fold mappings differ between this runtime and the pip scanner's Python, all of them unassigned in the older version. Folding feeds anchors and prefilter presence checks, so the skew is not confined to matching. Neither engine is wrong, they were built against different Unicode versions",
   "Regex offsets are UTF-16 units here and code points in Python, so windows, negation ranges, corroboration and excerpts can differ around astral characters even though matching itself is code-point aware. Reach includes 13 anchored entries, 38 windowed entries and 781 guarded cores",
@@ -265,6 +265,10 @@ export const VIEW_SEP = "\x1e";
 
 export function normalize(text) {
   text = text.split(VIEW_SEP).join(" ");
+  // Read before stripInvisible removes them, so the plain view still loses
+  // them (a split phrase keeps matching) and the shadow view sees the text.
+  // Mirrors preprocessor.py normalize().
+  const shadow = decodeShadowAscii(text);
   text = stripInvisible(text);
   text = normalizeUnicode(text);
   text = replaceHomoglyphs(text);
@@ -298,5 +302,23 @@ export function normalize(text) {
     if (rot !== text) text = text + " " + VIEW_SEP + " " + rot;
     text = text.toLowerCase();
   }
+  if (shadow !== null) {
+    // Its own views, behind the separator, so an excerpt never joins it to the
+    // plain text.
+    text = text + " " + VIEW_SEP + " " + normalize(shadow);
+  }
   return text;
+}
+
+// Invisible code points that shadow printable ASCII one for one. Port of
+// preprocessor.py SHADOW_ASCII; the `u` flag makes the class code points, not
+// UTF-16 halves.
+const SHADOW_ASCII = /[\u{E0020}-\u{E007E}]/u;
+const SHADOW_ASCII_ALL = /[\u{E0020}-\u{E007E}]/gu;
+
+// The input with each shadow code point read as the ASCII it shadows. null
+// when there is none, so ordinary text gains no extra view.
+export function decodeShadowAscii(text) {
+  if (!SHADOW_ASCII.test(text)) return null;
+  return text.replace(SHADOW_ASCII_ALL, (c) => String.fromCodePoint(c.codePointAt(0) - 0xE0000));
 }

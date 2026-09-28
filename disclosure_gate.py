@@ -31,6 +31,8 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent
+# Opens both EDGE_BOUNDARY and EDGE_NON_BOUNDARY in compile_patterns.py.
+EDGE_OPEN = "(?<=[\\w\u0130\u0131])"
 
 DUMP = """
 const p = await import("%s/src/patterns.js");
@@ -69,6 +71,11 @@ def word_boundaries(source: str) -> int:
         if char == "]" and in_class:
             in_class = False
         i += 1
+    # The compiler writes a boundary as a lookaround pair over the edge class
+    # (compile_patterns.EDGE_BOUNDARY), so after it a rule carries no `\\b` at
+    # all. Its reach is unchanged and is still what the disclosure states, so
+    # the lookbehind that opens either form is counted as one boundary.
+    found += source.count(EDGE_OPEN)
     return found
 
 
