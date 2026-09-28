@@ -265,6 +265,10 @@ export const VIEW_SEP = "\x1e";
 
 export function normalize(text) {
   text = text.split(VIEW_SEP).join(" ");
+  // Read before stripInvisible removes them, so the plain view still loses
+  // them (a split phrase keeps matching) and the shadow view sees the text.
+  // Mirrors preprocessor.py normalize().
+  const shadow = decodeShadowAscii(text);
   text = stripInvisible(text);
   text = normalizeUnicode(text);
   text = replaceHomoglyphs(text);
@@ -298,5 +302,23 @@ export function normalize(text) {
     if (rot !== text) text = text + " " + VIEW_SEP + " " + rot;
     text = text.toLowerCase();
   }
+  if (shadow !== null) {
+    // Its own views, behind the separator, so an excerpt never joins it to the
+    // plain text.
+    text = text + " " + VIEW_SEP + " " + normalize(shadow);
+  }
   return text;
+}
+
+// Invisible code points that shadow printable ASCII one for one. Port of
+// preprocessor.py SHADOW_ASCII; the `u` flag makes the class code points, not
+// UTF-16 halves.
+const SHADOW_ASCII = /[\u{E0020}-\u{E007E}]/u;
+const SHADOW_ASCII_ALL = /[\u{E0020}-\u{E007E}]/gu;
+
+// The input with each shadow code point read as the ASCII it shadows. null
+// when there is none, so ordinary text gains no extra view.
+export function decodeShadowAscii(text) {
+  if (!SHADOW_ASCII.test(text)) return null;
+  return text.replace(SHADOW_ASCII_ALL, (c) => String.fromCodePoint(c.codePointAt(0) - 0xE0000));
 }

@@ -3,7 +3,7 @@
 // negation window, worst-severity decision.
 import { MECHANISMS } from "./mechanisms.js";
 import { PATTERNS } from "./patterns.js";
-import { normalize, VIEW_SEP } from "./preprocessor.js";
+import { decodeShadowAscii, normalize, VIEW_SEP } from "./preprocessor.js";
 
 const SEVERITY_ORDER = { critical: 4, high: 3, medium: 2, low: 1, review: 0 };
 const SEVERITY_TO_DECISION = {
@@ -459,6 +459,9 @@ export function scan(text, channel = "message") {
   // than a fake number; the UI hides it. Real timing lives in CF's own metrics.
   const start = Date.now();
   const normalized = normalize(text);
+  // The raw text read with one more invisible encoding decoded, for rules that
+  // match raw text. null for ordinary text, which costs nothing. engine.py.
+  const shadow = decodeShadowAscii(text);
   const findings = [];
   const seen = new Set();
 
@@ -514,9 +517,13 @@ export function scan(text, channel = "message") {
   for (const { pattern, compiled } of regexPatterns) {
     if (!channelHit(pattern)) continue;
     if (seen.has(pattern.id)) continue;
-    const subjects = pattern.match_on === "normalized" ? [text, normalized] : [text];
+    // [subject, frame]: the shadow subject is framed against itself, raw and
+    // normalized against the raw text (engine.py subjects triple).
+    const subjects = [[text, text]];
+    if (shadow !== null) subjects.push([shadow, shadow]);
+    if (pattern.match_on === "normalized") subjects.push([normalized, text]);
     let decided = false;
-    for (const subject of subjects) {
+    for (const [subject, frame] of subjects) {
       // Folded ONCE per subject and reused for every entry of this pattern, the
       // way Python folds the document once for the whole index. Folding per
       // entry would hand the cost straight back.
@@ -540,7 +547,7 @@ export function scan(text, channel = "message") {
           const defensive =
             !negated &&
             pattern.id.startsWith("GLS-MECH-") &&
-            isDefensivelyFramed(text, m.index);
+            isDefensivelyFramed(frame, m.index);
           findings.push(makeFinding(pattern, m[0].slice(0, 50), negated, defensive));
           decided = true;
           break;
