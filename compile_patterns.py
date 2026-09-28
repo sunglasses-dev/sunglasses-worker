@@ -254,6 +254,11 @@ def convert(py_regex: str):
 DOTLESS_I = "\u0130\u0131"
 
 
+def _range_covers_i(lo: str, hi: str) -> bool:
+    """A literal class range `lo-hi` that contains `i` or `I`."""
+    return lo <= "i" <= hi or lo <= "I" <= hi
+
+
 def _widen_dotless_i(src: str) -> str:
     """Let a literal `i` match Python's whole equivalence class for it.
 
@@ -296,6 +301,18 @@ def _widen_dotless_i(src: str) -> str:
             in_class = True
         elif ch == "]":
             in_class = False
+        elif (in_class and src[i + 1:i + 2] == "-" and i + 2 < len(src)
+              and src[i + 2] not in "]\\" and _range_covers_i(ch, src[i + 2])):
+            # A RANGE covering `i` or `I`, e.g. `[a-z]`. Python's IGNORECASE
+            # lets it match U+0130 and U+0131 and `iu` does not (enumerated over
+            # every scalar; U+017F and U+212A already agree), which could turn a
+            # block into an allow. The two
+            # code points go into the same class after the range, which also
+            # keeps a NEGATED class right: `[^a-z]` under re.IGNORECASE does not
+            # match U+0130 in Python, and `[^a-z\u0130\u0131]` does not here.
+            out.append(src[i:i + 3] + DOTLESS_I)
+            i += 3
+            continue
         elif ch in "iI":
             out.append(ch + DOTLESS_I if in_class else "[" + ch + DOTLESS_I + "]")
             i += 1

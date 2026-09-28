@@ -133,18 +133,19 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   contract, so either the contract narrows or the decoder changes. Calling it
   closed while the handler still accepts the input was the overstatement.
 
-- **Case equivalence, LITERALS CLOSED and RANGES OPEN, 2026-09-14.** Enumerated
-  across every ASCII letter, digit and underscore against all 1,112,064 scalars:
-  the entire difference was `i` also matching U+0130 and U+0131. The compiler
-  widens a literal `i` to that class and the regexes carry the `u` flag, which
-  also gives code point stepping rather than UTF-16 units.
+- **Case equivalence, LITERALS AND RANGES CLOSED.** Enumerated across every
+  ASCII letter, digit and underscore against all 1,112,064 scalars: the entire
+  difference was `i` also matching U+0130 and U+0131. The compiler widens a
+  literal `i` to that class and the regexes carry the `u` flag, which also gives
+  code point stepping rather than UTF-16 units.
 
-  That closes LITERALS only. A widening pass rewrites a literal; it cannot
-  rewrite a RANGE, so `[a-z]` and `[A-Z]` stay narrow here while Python's match
-  U+0130 and U+0131 under case-insensitive matching. Measured in both engines
-  directly. That drops a match Python makes, turning a block into an allow, and
-  133 rules across 140 compiled entries carry such a range. Enumerating literals
-  does not close a range, and the earlier CLOSED read as though it had.
+  A character class RANGE that covers `i` or `I`, such as `[a-z]`, `[A-Z]` or
+  `[h-j]`, now carries the same two code points inside the class, negated or
+  not. Twelve classes were enumerated against every scalar in both engines
+  after the change and each matches exactly the set Python matches. 152
+  compiled entries across 139 rules carry such a range. A class that covers no
+  `i` compiles byte for byte as before. Word boundaries next to these two
+  letters are not a class and are listed under word boundaries.
 
 - **Whitespace classes, NARROWED 2026-09-14.** Enumerated in both directions:
   Python also matches U+001C to U+001F and U+0085, JavaScript also matches
