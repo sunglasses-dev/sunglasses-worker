@@ -5,7 +5,7 @@
 import { scan, STATS, VALID_CHANNELS } from "./engine.js";
 import { PATTERNS_VERSION, COMPILED_FROM } from "./patterns.js";
 import { LIMITATIONS } from "./preprocessor.js";
-import { parseGitHubUrl, fetchRawFile, AGENT_SURFACES, GITHUB_CAPS } from "./github.js";
+import { parseGitHubUrl, fetchRawFile, readCapped, AGENT_SURFACES, GITHUB_CAPS } from "./github.js";
 import { rollupRepo, TIER_B_IDS, TIER_S_SIGNATURE_IDS } from "./policy.js";
 
 const MAX_BYTES = 100_000; // Workers CPU guard
@@ -109,27 +109,46 @@ async function rateLimited(request, env) {
   }
 }
 
-// Turnstile verification — enforced only when TURNSTILE_SECRET is set, so the
-// widget can be wired at launch without a code change.
-async function turnstileFails(body, request, env) {
-  if (!env?.TURNSTILE_SECRET) return false;
+// Turnstile verification. Fails closed: with no TURNSTILE_SECRET the demo routes
+// refuse, unless TURNSTILE_DISABLED is exactly "1" (local dev only). Returns null
+// when the caller may go on, or the Response to send back.
+// A siteverify answer is a few hundred bytes; anything past this is not Cloudflare.
+const MAX_VERIFY_BYTES = 16_384;
+
+async function turnstileGate(body, request, env) {
+  const denied = () => json({ error: "Human verification failed. Refresh and try again." }, 403);
+  if (!env?.TURNSTILE_SECRET) {
+    if (env?.TURNSTILE_DISABLED === "1") return null;
+    return json({ error: "Human verification is not configured." }, 403);
+  }
   const token = body?.turnstile_token;
-  if (!token) return true;
-  const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      secret: env.TURNSTILE_SECRET,
-      response: token,
-      remoteip: request.headers.get("CF-Connecting-IP"),
-    }),
-  });
-  const data = await res.json();
-  return !data.success;
+  if (!token) return denied();
+  let data;
+  try {
+    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        secret: env.TURNSTILE_SECRET,
+        response: token,
+        remoteip: request.headers.get("CF-Connecting-IP"),
+      }),
+    });
+    const declared = Number(res.headers.get("content-length") || 0);
+    if (declared > MAX_VERIFY_BYTES) { res.body?.cancel().catch(() => {}); throw new Error("verifier reply too large"); }
+    const read = await readCapped(res, MAX_VERIFY_BYTES);
+    if (read.tooBig) throw new Error("verifier reply too large");
+    data = JSON.parse(read.text);
+  } catch {
+    return json({ error: "Human verification is unavailable. Try again shortly." }, 503);
+  }
+  return data && data.success === true ? null : denied();
 }
 
-export default {
-  async fetch(request, env) {
+const MAX_CHANNEL_CHARS = 64;
+const ECHO_CHANNEL_CHARS = 32;
+
+async function route(request, env) {
     const url = new URL(request.url);
     // Same-origin route on sunglasses.dev mounts this worker under /api/*;
     // workers.dev keeps the bare paths. Normalize so both work.
@@ -147,9 +166,8 @@ export default {
         return json({ error: "Body must be JSON: {\"text\": \"...\", \"channel\": \"message\"}" }, 400);
       }
       const body = read.body;
-      if (await turnstileFails(body, request, env)) {
-        return json({ error: "Human verification failed. Refresh and try again." }, 403);
-      }
+      const gate = await turnstileGate(body, request, env);
+      if (gate) return gate;
       const text = body.text;
       if (typeof text !== "string" || !text.length) {
         return json({ error: "Field \"text\" (non-empty string) is required." }, 400);
@@ -161,7 +179,11 @@ export default {
         ? "message"
         : body.channel;
       if (!VALID_CHANNELS.has(channel)) {
-        return json({ error: `Unknown channel ${JSON.stringify(channel)}. Valid channels: ${[...VALID_CHANNELS].sort().join(", ")}` }, 400);
+        const valid = [...VALID_CHANNELS].sort().join(", ");
+        if (typeof channel !== "string" || channel.length > MAX_CHANNEL_CHARS) {
+          return json({ error: `Unknown channel. Valid channels: ${valid}` }, 400);
+        }
+        return json({ error: `Unknown channel ${JSON.stringify(channel.slice(0, ECHO_CHANNEL_CHARS))}. Valid channels: ${valid}` }, 400);
       }
       const result = scan(text, channel);
       return json({
@@ -183,9 +205,8 @@ export default {
         return json({ error: "Body must be JSON: {\"url\": \"https://github.com/owner/repo\"}" }, 400);
       }
       const body = read.body;
-      if (await turnstileFails(body, request, env)) {
-        return json({ error: "Human verification failed. Refresh and try again." }, 403);
-      }
+      const gate = await turnstileGate(body, request, env);
+      if (gate) return gate;
       const parsed = parseGitHubUrl(body.url);
       if (parsed.error) return json({ error: parsed.error }, 400);
 
@@ -297,6 +318,15 @@ export default {
     }
 
     return json({ error: "Not found. Try GET /, GET /about, POST /scan, or POST /scan-github." }, 404);
+}
+
+export default {
+  async fetch(request, env) {
+    try {
+      return await route(request, env);
+    } catch {
+      return json({ error: "Internal error." }, 500);
+    }
   },
 };
 

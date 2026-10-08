@@ -39,4 +39,5 @@ namespace_id = "1001"
 simple = { limit = 30, period = 60 }
 
 # Turnstile: set TURNSTILE_SECRET via `wrangler secret put TURNSTILE_SECRET`
-# at launch (widget created in CF dash). Unset = not enforced (local dev).
+# at launch (widget created in CF dash). Unset = the demo routes refuse (fail
+# closed). Local dev only: set TURNSTILE_DISABLED="1" in .dev.vars to skip it.

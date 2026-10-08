@@ -15,7 +15,7 @@ const FIRST_CROSSING = Math.ceil((LIMIT + 1) / CHUNK) * CHUNK;
 const BODY_ERROR = /^The whole JSON request is limited to 616384 bytes\.$/;
 const JSON_HEADER = { "content-type": "application/json" };
 
-const post = (url, body, headers = JSON_HEADER, env = {}) =>
+const post = (url, body, headers = JSON_HEADER, env = { TURNSTILE_DISABLED: "1" }) =>
   worker.fetch(new Request(url, { method: "POST", headers, body, duplex: "half" }), env);
 
 // A body source that records how many bytes the worker pulled from it. The
