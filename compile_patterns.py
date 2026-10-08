@@ -268,12 +268,28 @@ def _widen_dotless_i(src: str) -> str:
     """
     out = []
     in_class = False
+    # Whether the engine matches case-insensitively at this point. Python's
+    # `(?-i:...)` turns that off for the group, and inside it a literal `i` does
+    # not match U+0130 or U+0131, so those groups are copied through unwidened.
+    ci = [True]
     i = 0
     while i < len(src):
         ch = src[i]
         if ch == "\\" and i + 1 < len(src):
             out.append(src[i:i + 2])
             i += 2
+            continue
+        if ch == ")" and not in_class:
+            if len(ci) > 1:
+                ci.pop()
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "(" and src[i:i + 2] != "(?":
+            if not in_class:
+                ci.append(ci[-1])
+            out.append(ch)
+            i += 1
             continue
         if ch == "(" and src[i:i + 2] == "(?":
             # A GROUP MODIFIER IS NOT A LITERAL. `(?i:` carries a flag letter,
@@ -284,16 +300,27 @@ def _widen_dotless_i(src: str) -> str:
             # everything up to the closing `:` or `)`, which swallowed the body
             # of `(?<=in)` and left a lookbehind unwidened: the same silent
             # narrowing this whole change exists to remove.
-            flags = re.match(r"\(\?([a-zA-Z]*)([:)])", src[i:])
+            flags = re.match(r"\(\?([a-zA-Z]*)(?:-([a-zA-Z]*))?([:)])", src[i:])
             name = re.match(r"\(\?P?<[A-Za-z_][A-Za-z0-9_]*>", src[i:])
             if name:
+                if not in_class:
+                    ci.append(ci[-1])
                 out.append(name.group(0))
                 i += name.end()
                 continue
             if flags:
+                if flags.group(3) == ":" and not in_class:
+                    state = ci[-1]
+                    if "i" in flags.group(1):
+                        state = True
+                    if flags.group(2) and "i" in flags.group(2):
+                        state = False
+                    ci.append(state)
                 out.append(flags.group(0))
                 i += flags.end()
                 continue
+            if not in_class:
+                ci.append(ci[-1])
             out.append(src[i:i + 2])
             i += 2
             continue
@@ -301,7 +328,7 @@ def _widen_dotless_i(src: str) -> str:
             in_class = True
         elif ch == "]":
             in_class = False
-        elif (in_class and src[i + 1:i + 2] == "-" and i + 2 < len(src)
+        elif (in_class and ci[-1] and src[i + 1:i + 2] == "-" and i + 2 < len(src)
               and src[i + 2] not in "]\\" and _range_covers_i(ch, src[i + 2])):
             # A RANGE covering `i` or `I`, e.g. `[a-z]`. Python's IGNORECASE
             # lets it match U+0130 and U+0131 and `iu` does not (enumerated over
@@ -313,7 +340,7 @@ def _widen_dotless_i(src: str) -> str:
             out.append(src[i:i + 3] + DOTLESS_I)
             i += 3
             continue
-        elif ch in "iI":
+        elif ch in "iI" and ci[-1]:
             out.append(ch + DOTLESS_I if in_class else "[" + ch + DOTLESS_I + "]")
             i += 1
             continue
