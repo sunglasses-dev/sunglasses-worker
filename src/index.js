@@ -46,10 +46,18 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+// Set on every answer. The site's _headers file only reaches Pages responses, so
+// the Worker mounted under /api/* has to carry its own.
+const SECURITY = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+};
+
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...CORS },
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...CORS, ...SECURITY },
   });
 }
 
@@ -148,13 +156,33 @@ async function turnstileGate(body, request, env) {
 const MAX_CHANNEL_CHARS = 64;
 const ECHO_CHANNEL_CHARS = 32;
 
+// The page runs one inline script. The CSP names it by hash, computed from the
+// page itself, so editing the script can never leave a stale hash behind.
+let cspCache;
+async function pageCsp() {
+  if (cspCache) return cspCache;
+  const script = /<script>([\s\S]*?)<\/script>/.exec(PAGE)[1];
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(script));
+  const hash = btoa(String.fromCharCode(...new Uint8Array(digest)));
+  cspCache = [
+    "default-src 'none'",
+    `script-src 'sha256-${hash}'`,
+    "style-src 'unsafe-inline'",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join("; ");
+  return cspCache;
+}
+
 async function route(request, env) {
     const url = new URL(request.url);
     // Same-origin route on sunglasses.dev mounts this worker under /api/*;
     // workers.dev keeps the bare paths. Normalize so both work.
     const path = url.pathname.replace(/^\/api(?=\/|$)/, "") || "/";
 
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...CORS, ...SECURITY } });
 
     if (path === "/scan" && request.method === "POST") {
       if (await rateLimited(request, env)) {
@@ -314,7 +342,14 @@ async function route(request, env) {
     }
 
     if (path === "/" && request.method === "GET") {
-      return new Response(PAGE, { headers: { "Content-Type": "text/html; charset=utf-8", ...CORS } });
+      return new Response(PAGE, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Security-Policy": await pageCsp(),
+          ...CORS,
+          ...SECURITY,
+        },
+      });
     }
 
     return json({ error: "Not found. Try GET /, GET /about, POST /scan, or POST /scan-github." }, 404);
@@ -415,13 +450,13 @@ go.onclick = async () => {
     const r = await fetch('/scan', { method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ text: txt.value, channel: document.getElementById('channel').value }) });
     const d = await r.json();
-    if (d.error) { out.innerHTML = '<div class="verdict v-quarantine">' + d.error + '</div>'; return; }
+    if (d.error) { out.innerHTML = '<div class="verdict v-quarantine">' + esc(d.error) + '</div>'; return; }
     const cls = d.decision === 'block' ? 'v-block' : (d.decision === 'allow' ? 'v-allow' : 'v-quarantine');
-    const label = { block:'⛔ BLOCK', quarantine:'⚠️ QUARANTINE', allow:'✅ ALLOW', allow_redacted:'⚠️ ALLOW (REDACTED)' }[d.decision] || d.decision.toUpperCase();
-    const timing = d.latency_ms ? ' · ' + d.latency_ms + 'ms' : '';
+    const label = { block:'⛔ BLOCK', quarantine:'⚠️ QUARANTINE', allow:'✅ ALLOW', allow_redacted:'⚠️ ALLOW (REDACTED)' }[d.decision] || esc(String(d.decision).toUpperCase());
+    const timing = d.latency_ms ? ' · ' + esc(d.latency_ms) + 'ms' : '';
     out.innerHTML = '<div class="verdict ' + cls + '"><span>' + label + '</span><span>' + d.findings.length + ' finding' + (d.findings.length===1?'':'s') + timing + '</span></div>' +
       (d.verdict_meaning ? '<div class="vnote"><b>What this means:</b> ' + esc(d.verdict_meaning) + '</div>' : '') +
-      d.findings.slice(0, 25).map(f => '<div class="f"><div class="meta">' + f.id + ' · ' + f.category + ' · ' + f.severity + '</div><b>' + esc(f.name) + '</b><p>' + esc(f.description || '') + '</p><div class="m">matched: ' + esc(f.matched_text || '') + '</div></div>').join('') +
+      d.findings.slice(0, 25).map(f => '<div class="f"><div class="meta">' + esc(f.id) + ' · ' + esc(f.category) + ' · ' + esc(f.severity) + '</div><b>' + esc(f.name) + '</b><p>' + esc(f.description || '') + '</p><div class="m">matched: ' + esc(f.matched_text || '') + '</div></div>').join('') +
       (d.findings.length > 25 ? '<div class="f"><p>+' + (d.findings.length - 25) + ' more findings</p></div>' : '');
   } catch (e) { out.innerHTML = '<div class="verdict v-quarantine">Request failed: ' + esc(String(e)) + '</div>'; }
   finally { go.disabled = false; stat.textContent = ''; }
