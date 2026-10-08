@@ -8,7 +8,17 @@ import { LIMITATIONS } from "./preprocessor.js";
 import { parseGitHubUrl, fetchRawFile, AGENT_SURFACES, GITHUB_CAPS } from "./github.js";
 import { rollupRepo, TIER_B_IDS, TIER_S_SIGNATURE_IDS } from "./policy.js";
 
-const MAX_BYTES = 100_000; // Workers CPU guard; the pip scanner has no such cap
+const MAX_BYTES = 100_000; // Workers CPU guard
+// The request body is read under its own ceiling before it is parsed. This is a
+// request contract of its own, separate from the 100 KB text cap: a JSON request
+// over this size is refused whatever its text holds, even a two byte text behind
+// a lot of whitespace, an ignored field or a repeated key. 100 KB of text takes
+// at most 6 bytes per byte once escaped (a control character is sent as \u00XX)
+// and 16 KiB covers the Turnstile token, the channel and the braces, so no text
+// that passes the cap below needs more than this when sent without padding.
+const MAX_BODY_BYTES = 6 * MAX_BYTES + 16_384;
+const BODY_CAP_ERROR = `The whole JSON request is limited to ${MAX_BODY_BYTES} bytes.`;
+const CAP_ERROR = `Scan text is limited to ${MAX_BYTES} UTF-8 bytes.`;
 // The channels the paste-and-scan UI offers. The API accepts every channel the
 // engine knows (VALID_CHANNELS: the documented set + pattern-declared synonyms
 // like email/log/image_alt_text); an unknown one is a 400, never a silent
@@ -41,6 +51,49 @@ function json(obj, status = 200) {
     status,
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...CORS },
   });
+}
+
+// Reads a JSON body under `limit` bytes. A declared length over the limit is
+// refused before a byte is read. Otherwise the stream is pulled chunk by chunk
+// and cancelled as soon as the total passes the limit, so the parser is never
+// handed more than `limit` bytes. That bounds what is admitted to the parser, not
+// total memory: the chunk that crosses the limit has already arrived, and an
+// accepted body is held as chunks, then as one joined buffer, then as parsed text.
+// A length header that is missing or not a number does not skip the count.
+// Only a plain JSON object comes back as `body`; null, arrays and scalars are
+// `bad` like malformed JSON, so no route can throw on `body.field`.
+async function readJsonBody(request, limit) {
+  if (Number(request.headers.get("content-length")) > limit) return { tooBig: true };
+  let body;
+  try {
+    const chunks = [];
+    let size = 0;
+    if (request.body) {
+      const reader = request.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > limit) {
+          reader.cancel().catch(() => {});
+          return { tooBig: true };
+        }
+        chunks.push(value);
+      }
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    body = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    // Malformed JSON, or an upload that broke off: a 400, as request.json() gave.
+    return { bad: true };
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return { bad: true };
+  return { body };
 }
 
 // Per-IP rate limit (ephemeral counters — NOT storage; privacy stance intact).
@@ -88,12 +141,12 @@ export default {
       if (await rateLimited(request, env)) {
         return json({ error: "Rate limit hit. The demo allows 30 scans per minute. The pip scanner has no rate limit, and its default scan length limit is 1 MiB and configurable: pip install sunglasses" }, 429);
       }
-      let body;
-      try {
-        body = await request.json();
-      } catch {
+      const read = await readJsonBody(request, MAX_BODY_BYTES);
+      if (read.tooBig) return json({ error: BODY_CAP_ERROR }, 413);
+      if (read.bad) {
         return json({ error: "Body must be JSON: {\"text\": \"...\", \"channel\": \"message\"}" }, 400);
       }
+      const body = read.body;
       if (await turnstileFails(body, request, env)) {
         return json({ error: "Human verification failed. Refresh and try again." }, 403);
       }
@@ -102,7 +155,7 @@ export default {
         return json({ error: "Field \"text\" (non-empty string) is required." }, 400);
       }
       if (new TextEncoder().encode(text).length > MAX_BYTES) {
-        return json({ error: `Demo request cap is ${MAX_BYTES / 1000}KB per scan. The pip scanner has no request cap, and its default scan length limit is 1 MiB and configurable: pip install sunglasses` }, 413);
+        return json({ error: CAP_ERROR }, 413);
       }
       const channel = body.channel === undefined || body.channel === null || body.channel === ""
         ? "message"
@@ -124,12 +177,12 @@ export default {
       if (await rateLimited(request, env)) {
         return json({ error: "Rate limit hit. The demo allows 30 scans per minute. The pip scanner has no rate limit, and its default scan length limit is 1 MiB and configurable: pip install sunglasses" }, 429);
       }
-      let body;
-      try {
-        body = await request.json();
-      } catch {
+      const read = await readJsonBody(request, MAX_BODY_BYTES);
+      if (read.tooBig) return json({ error: BODY_CAP_ERROR }, 413);
+      if (read.bad) {
         return json({ error: "Body must be JSON: {\"url\": \"https://github.com/owner/repo\"}" }, 400);
       }
+      const body = read.body;
       if (await turnstileFails(body, request, env)) {
         return json({ error: "Human verification failed. Refresh and try again." }, 403);
       }

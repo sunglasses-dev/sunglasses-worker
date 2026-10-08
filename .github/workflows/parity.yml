@@ -79,3 +79,5 @@ jobs:
         run: python3 disclosure_gate.py
       - name: workerd runtime probes
         run: python3 workerd_probe.py
+      - name: Worker route tests (request body cap, non object bodies)
+        run: node --test tests/*.test.mjs
