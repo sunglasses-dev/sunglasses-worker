@@ -61,7 +61,7 @@ def _post(url, body):
 def main():
     port = _free_port()
     proc = subprocess.Popen(
-        ["npx", "wrangler", "dev", "--port", str(port), "--local"],
+        ["npx", "wrangler", "dev", "--port", str(port), "--local", "--var", "TURNSTILE_DISABLED:1"],
         cwd=HERE, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
         start_new_session=True,
     )

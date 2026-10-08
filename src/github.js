@@ -34,9 +34,10 @@ export const AGENT_SURFACES = [
 //   https://raw.githubusercontent.com/{owner}/{repo}/...  → single file
 // Returns { owner, repo, files: [{path, rawUrl}] } or { error }.
 export function parseGitHubUrl(input) {
+  if (typeof input !== "string") return { error: "Not a valid URL." };
   let url;
   try {
-    url = new URL(String(input).trim());
+    url = new URL(input.trim());
   } catch {
     return { error: "Not a valid URL." };
   }
@@ -83,6 +84,32 @@ export function parseGitHubUrl(input) {
 }
 
 // Fetch one whitelisted raw file. Never follows redirects; caps size.
+// Reads a reply chunk by chunk and cancels it the moment the cap is passed, so a
+// reply with no content-length cannot make the worker hold the whole body.
+export async function readCapped(res, limit) {
+  if (!res.body) {
+    const text = await res.text();
+    return new TextEncoder().encode(text).length > limit ? { tooBig: true } : { text };
+  }
+  const reader = res.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      reader.cancel().catch(() => {}); // start the cancel, do not wait on a stalled upstream
+      return { tooBig: true };
+    }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) { all.set(c, at); at += c.byteLength; }
+  return { text: new TextDecoder().decode(all) };
+}
+
 export async function fetchRawFile(rawUrl) {
   const res = await fetch(rawUrl, { redirect: "manual" });
   if (res.status === 404) return { status: 404 };
@@ -91,10 +118,9 @@ export async function fetchRawFile(rawUrl) {
   const len = Number(res.headers.get("content-length") || 0);
   if (len > MAX_FILE_BYTES) return { status: 413, error: `File exceeds ${MAX_FILE_BYTES / 1000}KB demo cap` };
 
-  const text = await res.text();
-  if (new TextEncoder().encode(text).length > MAX_FILE_BYTES) {
-    return { status: 413, error: `File exceeds ${MAX_FILE_BYTES / 1000}KB demo cap` };
-  }
+  const read = await readCapped(res, MAX_FILE_BYTES);
+  if (read.tooBig) return { status: 413, error: `File exceeds ${MAX_FILE_BYTES / 1000}KB demo cap` };
+  const text = read.text;
   return { status: 200, text };
 }
 
