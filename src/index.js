@@ -186,7 +186,7 @@ async function route(request, env) {
 
     if (path === "/scan" && request.method === "POST") {
       if (await rateLimited(request, env)) {
-        return json({ error: "Rate limit hit. The demo allows 30 scans per minute. The pip scanner has no rate limit, and its default scan length limit is 1 MiB and configurable: pip install sunglasses" }, 429);
+        return json({ error: "Rate limit hit. The demo allows 30 scans per minute. The pip scanner's default scan length limit is 1 MiB and configurable: pip install sunglasses" }, 429);
       }
       const read = await readJsonBody(request, MAX_BODY_BYTES);
       if (read.tooBig) return json({ error: BODY_CAP_ERROR }, 413);
@@ -225,7 +225,7 @@ async function route(request, env) {
 
     if (path === "/scan-github" && request.method === "POST") {
       if (await rateLimited(request, env)) {
-        return json({ error: "Rate limit hit. The demo allows 30 scans per minute. The pip scanner has no rate limit, and its default scan length limit is 1 MiB and configurable: pip install sunglasses" }, 429);
+        return json({ error: "Rate limit hit. The demo allows 30 scans per minute. The pip scanner's default scan length limit is 1 MiB and configurable: pip install sunglasses" }, 429);
       }
       const read = await readJsonBody(request, MAX_BODY_BYTES);
       if (read.tooBig) return json({ error: BODY_CAP_ERROR }, 413);
