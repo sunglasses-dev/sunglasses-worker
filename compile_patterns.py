@@ -80,8 +80,12 @@ OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 FLAG_MAP = {"i": "i", "s": "s", "m": "m"}
 # Python-only flags we can safely IGNORE for these patterns:
 #  - x (verbose): none of the shipped patterns rely on it (verified by scan below)
-#  - a/u/L (charset scoping): JS is UTF-16 by default; patterns are ASCII-centric
-IGNORABLE = {"a", "u"}
+#  - u (charset scoping): Unicode is what a string pattern means anyway
+# `a` (ASCII mode) is refused, not ignored: it makes U+0130 and U+0131 exact characters even with
+# case-insensitive matching on, which the dotless i widening below would then contradict.
+IGNORABLE = {"u"}
+ASCII_MODE_ERROR = ("ASCII flag (?a) not supported: Python then keeps U+0130 and U+0131 apart from "
+                    "i, and the dotless i widening assumes Unicode case folding")
 
 LEADING_FLAGS = re.compile(r"^\(\?([aiLmsux]+)\)")
 
@@ -172,6 +176,8 @@ def convert(py_regex: str):
         if not m:
             break
         for ch in m.group(1):
+            if ch == "a":
+                raise ValueError(ASCII_MODE_ERROR)
             if ch in FLAG_MAP:
                 flags.add(FLAG_MAP[ch])
             elif ch in IGNORABLE:
@@ -457,6 +463,8 @@ def _widen_dotless_i(src: str) -> str:
                 i += name.end()
                 continue
             if flags:
+                if "a" in flags.group(1):
+                    raise ValueError(ASCII_MODE_ERROR)
                 if flags.group(3) == ":":
                     state = ci[-1]
                     if "i" in flags.group(1):
@@ -475,11 +483,7 @@ def _widen_dotless_i(src: str) -> str:
             text, i = _widen_class(src, i, not ci[-1])
             out.append(text)
             continue
-        if ch in "iI" and ci[-1]:
-            out.append("[" + ch + DOTLESS_I + "]")
-            i += 1
-            continue
-        if ch in DOTLESS_I and ci[-1]:
+        if _holds_an_i(ord(ch), ord(ch)) and ci[-1]:
             out.append(_i_class(ch, ord(ch)))
             i += 1
             continue
