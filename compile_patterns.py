@@ -259,6 +259,16 @@ def _range_covers_i(lo: str, hi: str) -> bool:
     return lo <= "i" <= hi or lo <= "I" <= hi
 
 
+# The letter i or I written as a code, in the spellings Python and JavaScript share.
+_ESCAPED_I = re.compile(r"\\(?:x(?:69|49)|u00(?:69|49))")
+
+
+def _order_anchors(terms):
+    """Longest first, and equal lengths in lexical order, so a recompile writes the same
+    file every time. A set hands equal lengths back in an order that changes per process."""
+    return sorted(terms, key=lambda t: (-len(t), t))
+
+
 def _widen_dotless_i(src: str) -> str:
     """Let a literal `i` match Python's whole equivalence class for it.
 
@@ -276,6 +286,14 @@ def _widen_dotless_i(src: str) -> str:
     while i < len(src):
         ch = src[i]
         if ch == "\\" and i + 1 < len(src):
+            spelled = _ESCAPED_I.match(src, i)
+            if spelled and ci[-1]:
+                # `\x69` is the letter i written as a code: it matches the same
+                # equivalence class as the letter, so it is widened the same way.
+                out.append(spelled.group(0) + DOTLESS_I if in_class
+                           else "[" + spelled.group(0) + DOTLESS_I + "]")
+                i = spelled.end()
+                continue
             out.append(src[i:i + 2])
             i += 2
             continue
@@ -291,7 +309,10 @@ def _widen_dotless_i(src: str) -> str:
             out.append(ch)
             i += 1
             continue
-        if ch == "(" and src[i:i + 2] == "(?":
+        if ch == "(" and src[i:i + 2] == "(?" and not in_class:
+            # Inside a character class `(?-i:` is five literal characters, not a
+            # modifier, so it falls through to the literal handling below.
+            #
             # A GROUP MODIFIER IS NOT A LITERAL. `(?i:` carries a flag letter,
             # and widening it produced `(?[i\u0130\u0131]:`, which is not a
             # regex at all.
@@ -325,6 +346,16 @@ def _widen_dotless_i(src: str) -> str:
             i += 2
             continue
         if ch == "[":
+            if not in_class:
+                # A `]` that comes first in a class (after an optional `^`) is a
+                # member of it, not the end. JavaScript reads `[]` as an empty
+                # class, so it is written as an escape.
+                j = i + 1 + (src[i + 1:i + 2] == "^")
+                if src[j:j + 1] == "]":
+                    out.append(src[i:j] + "\\]")
+                    in_class = True
+                    i = j + 1
+                    continue
             in_class = True
         elif ch == "]":
             in_class = False
@@ -704,9 +735,7 @@ def main():
                                            "anchor_refused": refusal,
                                            "requires": _required_literals(rx)})
                 else:
-                    terms = sorted(
-                        {_prefilter.fold(a) for a in p["anchor_terms"] if a},
-                        key=len, reverse=True)
+                    terms = _order_anchors({_prefilter.fold(a) for a in p["anchor_terms"] if a})
                     proven = _prefilter.max_match_length(rx)
                     span = (proven if proven is not None
                             else int(p.get("anchor_span", SunglassesEngine.ANCHOR_SPAN)))
