@@ -114,7 +114,7 @@ class RangeEndpoints(unittest.TestCase):
                     if _compiles(source):
                         sources.append(source)
         self.assertGreater(len(sources), 500)
-        self.assertEqual(disagreements(sources[::3]), [])
+        self.assertEqual(disagreements(sources), [])
 
 
 class SpellingsPythonReadsAndJavaScriptDoesNot(unittest.TestCase):
@@ -130,6 +130,25 @@ class SpellingsPythonReadsAndJavaScriptDoesNot(unittest.TestCase):
 
     def test_a_long_unicode_escape_becomes_a_code_point_escape(self):
         self.assertEqual(cp._widen_dotless_i(r"\U0001f600"), r"\u{1f600}")
+
+    def test_an_octal_escape_above_377_is_left_as_it_was(self):
+        # Python rejects it, so no source that compiles holds one; it is not turned into a code point
+        # that JavaScript would accept.
+        for source in (r"\777", r"[\777]", r"[\400]", r"a\400b"):
+            with self.subTest(source=source):
+                self.assertEqual(cp._widen_dotless_i(source), source)
+                with self.assertRaises(re.error):
+                    re.compile(source)
+
+    def test_a_lone_zero_escape_is_written_as_a_code_point(self):
+        # JavaScript with the u flag accepts a bare `\0`; it is still written as \x00 so that the
+        # same code point is spelled the same way inside and outside a class.
+        self.assertEqual(cp._widen_dotless_i(r"\0"), r"\x00")
+        self.assertEqual(cp._widen_dotless_i(r"[\0]"), r"[\x00]")
+
+    def test_a_named_escape_is_written_as_the_same_code_point(self):
+        self.assertEqual(cp._widen_dotless_i(r"\N{LATIN SMALL LETTER A}"), r"\u0061")
+        self.assertEqual(cp._widen_dotless_i(r"[\N{LATIN SMALL LETTER A}]"), r"[\u0061]")
 
     def test_a_backreference_is_not_an_octal_escape(self):
         self.assertEqual(cp._widen_dotless_i(r"(a)\1"), r"(a)\1")

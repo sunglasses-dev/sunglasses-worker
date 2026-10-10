@@ -253,6 +253,24 @@ def convert(py_regex: str):
 # collapses both characters, so the anchored lane found its term and then the
 # regex failed to match the document it had been pointed at.
 DOTLESS_I = "\u0130\u0131"
+# Python, with re.IGNORECASE, reads these four code points as one letter: I, i, U+0130 and U+0131.
+# JavaScript with `iu` folds I and i only. So any atom that names one of the four, in whatever
+# spelling, has to carry all four, and the test for that is made on the decoded code point.
+_I_EQUIVALENTS = (0x49, 0x69, 0x130, 0x131)
+
+
+def _holds_an_i(lo, hi) -> bool:
+    """Whether the code points lo..hi (a single atom has hi == lo) hold a member of the class of i."""
+    return lo is not None and hi is not None and any(lo <= m <= hi for m in _I_EQUIVALENTS)
+
+
+def _i_class(spelled: str, cp: int) -> str:
+    """The class that stands for a single atom of the i class outside a character class. The ASCII
+    members keep their own spelling (JavaScript's `iu` already folds the other ASCII one); a dotted
+    or dotless one is written as `i` plus both, because `iu` does not fold them to the letter."""
+    if cp in (0x49, 0x69):
+        return "[" + spelled + DOTLESS_I + "]"
+    return "[i" + DOTLESS_I + "]"
 
 
 def _order_anchors(terms):
@@ -303,10 +321,16 @@ def _read_escape(src: str, i: int, in_class: bool):
         while end < len(src) and end < i + 4 and src[end] in _OCTAL:
             end += 1
         cp = int(src[i + 1:end], 8)
+        if cp > 0o377:
+            # Python rejects this escape, so no source that compiles holds it. It is left as it
+            # was and not rewritten into something JavaScript would accept.
+            return end, None, src[i:end]
         return end, cp, "\\x%02x" % cp
     elif c in "123456789" and not in_class:
         three = src[i + 1:i + 4]
         if len(three) == 3 and all(d in _OCTAL for d in three):
+            if int(three, 8) > 0o377:
+                return i + 4, None, src[i:i + 4]
             return i + 4, int(three, 8), "\\x%02x" % int(three, 8)
         end = i + 2 + (src[i + 2:i + 3].isdigit())
         return end, None, src[i:end]
@@ -360,17 +384,21 @@ def _widen_class(src: str, i: int, exact: bool):
         first = False
         if src[start] == "-" and widened and src[end:end + 1] != "]":
             spelled = "\\-"
-        reaches = lo in (0x69, 0x49)
+        reaches = _holds_an_i(lo, lo)
+        names_ascii = lo in (0x69, 0x49)
         if src[end:end + 1] == "-" and src[end + 1:end + 2] not in ("]", ""):
             hi_end, hi, hi_spelled = _read_atom(src, end + 1, False)
             if lo is not None and hi is not None:
                 spelled = spelled + "-" + hi_spelled
                 end = hi_end
-                reaches = lo <= 0x69 <= hi or lo <= 0x49 <= hi
+                reaches = _holds_an_i(lo, hi)
+                names_ascii = lo <= 0x69 <= hi or lo <= 0x49 <= hi
         out.append(spelled)
         widened = reaches and not exact
         if widened:
-            out.append(DOTLESS_I)
+            # `iu` folds I and i to each other, so one ASCII member is enough, but an atom that holds
+            # only a dotted or dotless one does not name it: Python matches i and I there too.
+            out.append(DOTLESS_I if names_ascii else "i" + DOTLESS_I)
         j = end
     return "".join(out), j
 
@@ -392,10 +420,11 @@ def _widen_dotless_i(src: str) -> str:
         ch = src[i]
         if ch == "\\" and i + 1 < len(src):
             end, cp, spelled = _read_escape(src, i, False)
-            if cp in (0x69, 0x49) and ci[-1]:
+            if _holds_an_i(cp, cp) and ci[-1]:
                 # `\x69` is the letter i written as a code: it matches the same
-                # equivalence class as the letter, so it is widened the same way.
-                out.append("[" + spelled + DOTLESS_I + "]")
+                # equivalence class as the letter, so it is widened the same way, and so is
+                # `\u0130`, which Python also reads as that letter.
+                out.append(_i_class(spelled, cp))
             else:
                 out.append(spelled)
             i = end
@@ -448,6 +477,10 @@ def _widen_dotless_i(src: str) -> str:
             continue
         if ch in "iI" and ci[-1]:
             out.append("[" + ch + DOTLESS_I + "]")
+            i += 1
+            continue
+        if ch in DOTLESS_I and ci[-1]:
+            out.append(_i_class(ch, ord(ch)))
             i += 1
             continue
         out.append(ch)
