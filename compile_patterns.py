@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import unicodedata
 
 # The scanner checkout to compile from. Overridable so a release build can bind
 # to a PRIVATE checkout of one resolved commit instead of the shared working
@@ -254,30 +255,134 @@ def convert(py_regex: str):
 DOTLESS_I = "\u0130\u0131"
 
 
-def _range_covers_i(lo: str, hi: str) -> bool:
-    """A literal class range `lo-hi` that contains `i` or `I`."""
-    return lo <= "i" <= hi or lo <= "I" <= hi
-
-
-# The letter i or I written as a code, in the spellings Python and JavaScript share.
-_ESCAPED_I = re.compile(r"\\(?:x(?:69|49)|u00(?:69|49))")
-
-
 def _order_anchors(terms):
     """Longest first, and equal lengths in lexical order, so a recompile writes the same
     file every time. A set hands equal lengths back in an order that changes per process."""
     return sorted(terms, key=lambda t: (-len(t), t))
 
 
+_OCTAL = "01234567"
+_HEX = "0123456789abcdefABCDEF"
+# Escapes that stand for one code point and that Python and JavaScript read alike, plus `\a`,
+# which Python reads as the bell and JavaScript (with the u flag) rejects.
+_NAMED_ESCAPES = {"a": 7, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11}
+
+
+def _code_point_escape(cp: int) -> str:
+    return "\\u%04x" % cp if cp <= 0xFFFF else "\\u{%x}" % cp
+
+
+def _read_escape(src: str, i: int, in_class: bool):
+    """The escape that starts at src[i] == "\\\\", read the way Python reads it.
+
+    Returns (end, code point or None, JavaScript spelling). The code point is None for an escape
+    that is not one character (a class such as `\\d`, a boundary, a group reference). The spelling is
+    the source text unless Python and JavaScript read it differently: an octal escape (`\\141`), an
+    eight digit Unicode escape (`\\U00000061`), a named one (`\\N{...}`) and the bell (`\\a`) are
+    written as the same code point in a form JavaScript accepts.
+    """
+    c = src[i + 1]
+    if c in "xuU":
+        width = {"x": 2, "u": 4, "U": 8}[c]
+        digits = src[i + 2:i + 2 + width]
+        if len(digits) == width and all(d in _HEX for d in digits):
+            cp = int(digits, 16)
+            end = i + 2 + width
+            return end, cp, (src[i:end] if c != "U" else _code_point_escape(cp))
+    elif c == "N" and src[i + 2:i + 3] == "{":
+        close = src.find("}", i + 3)
+        if close != -1:
+            try:
+                cp = ord(unicodedata.lookup(src[i + 3:close]))
+            except (KeyError, TypeError):
+                cp = None
+            if cp is not None:
+                return close + 1, cp, _code_point_escape(cp)
+    elif c == "0" or (in_class and c in _OCTAL):
+        end = i + 2
+        while end < len(src) and end < i + 4 and src[end] in _OCTAL:
+            end += 1
+        cp = int(src[i + 1:end], 8)
+        return end, cp, "\\x%02x" % cp
+    elif c in "123456789" and not in_class:
+        three = src[i + 1:i + 4]
+        if len(three) == 3 and all(d in _OCTAL for d in three):
+            return i + 4, int(three, 8), "\\x%02x" % int(three, 8)
+        end = i + 2 + (src[i + 2:i + 3].isdigit())
+        return end, None, src[i:end]
+    elif c in _NAMED_ESCAPES:
+        cp = _NAMED_ESCAPES[c]
+        return i + 2, cp, src[i:i + 2] if c != "a" else "\\x07"
+    elif c == "b" and in_class:
+        return i + 2, 8, "\\b"
+    elif c == "\\":
+        return i + 2, 92, "\\\\"
+    elif not (c.isascii() and c.isalnum()):
+        return i + 2, ord(c), src[i:i + 2]
+    return i + 2, None, src[i:i + 2]
+
+
+def _read_atom(src: str, i: int, first: bool):
+    """One member of a character class: a character or an escape. -> (end, code point or None, spelling).
+
+    A `]` that comes first is a member, written as an escape because JavaScript reads `[]` as empty.
+    """
+    ch = src[i]
+    if ch == "\\" and i + 1 < len(src):
+        return _read_escape(src, i, True)
+    if ch == "]" and first:
+        return i + 1, ord(ch), "\\]"
+    return i + 1, ord(ch), ch
+
+
+def _widen_class(src: str, i: int, exact: bool):
+    """The character class that starts at src[i] == "[", widened. -> (widened text, end).
+
+    The class is read in whole atoms, the way Python reads it: a character, an escape, or a range
+    `lo-hi` whose ends are each one of those. A range is never split. The two dotless code points are
+    written after the atom that reaches i or I, which keeps a negated class right. A hyphen that
+    would come directly after them, and is not the last thing in the class, is written as an escape,
+    so it cannot become the start of a new range.
+    """
+    out = ["["]
+    j = i + 1
+    if src[j:j + 1] == "^":
+        out.append("^")
+        j += 1
+    first = True
+    widened = False
+    while j < len(src):
+        if src[j] == "]" and not first:
+            out.append("]")
+            return "".join(out), j + 1
+        start = j
+        end, lo, spelled = _read_atom(src, j, first)
+        first = False
+        if src[start] == "-" and widened and src[end:end + 1] != "]":
+            spelled = "\\-"
+        reaches = lo in (0x69, 0x49)
+        if src[end:end + 1] == "-" and src[end + 1:end + 2] not in ("]", ""):
+            hi_end, hi, hi_spelled = _read_atom(src, end + 1, False)
+            if lo is not None and hi is not None:
+                spelled = spelled + "-" + hi_spelled
+                end = hi_end
+                reaches = lo <= 0x69 <= hi or lo <= 0x49 <= hi
+        out.append(spelled)
+        widened = reaches and not exact
+        if widened:
+            out.append(DOTLESS_I)
+        j = end
+    return "".join(out), j
+
+
 def _widen_dotless_i(src: str) -> str:
     """Let a literal `i` match Python's whole equivalence class for it.
 
-    Escapes are skipped whole, so `\u0131` and `\xE9` keep their hex digits, and
-    a literal inside a character class is widened by adding the two code points
-    to the class rather than nesting a new one.
+    A character class is read by `_widen_class` in whole atoms. Outside a class an escape is read by
+    `_read_escape`, so `\\x69`, `\\u0069`, `\\151` and `\\U00000069` are all the letter i and are widened
+    like it, and an escape is never read as the characters of its own spelling.
     """
     out = []
-    in_class = False
     # Whether the engine matches case-insensitively at this point. Python's
     # `(?-i:...)` turns that off for the group, and inside it a literal `i` does
     # not match U+0130 or U+0131, so those groups are copied through unwidened.
@@ -286,35 +391,29 @@ def _widen_dotless_i(src: str) -> str:
     while i < len(src):
         ch = src[i]
         if ch == "\\" and i + 1 < len(src):
-            spelled = _ESCAPED_I.match(src, i)
-            if spelled and ci[-1]:
+            end, cp, spelled = _read_escape(src, i, False)
+            if cp in (0x69, 0x49) and ci[-1]:
                 # `\x69` is the letter i written as a code: it matches the same
                 # equivalence class as the letter, so it is widened the same way.
-                out.append(spelled.group(0) + DOTLESS_I if in_class
-                           else "[" + spelled.group(0) + DOTLESS_I + "]")
-                i = spelled.end()
-                continue
-            out.append(src[i:i + 2])
-            i += 2
+                out.append("[" + spelled + DOTLESS_I + "]")
+            else:
+                out.append(spelled)
+            i = end
             continue
-        if ch == ")" and not in_class:
+        if ch == ")":
             if len(ci) > 1:
                 ci.pop()
             out.append(ch)
             i += 1
             continue
         if ch == "(" and src[i:i + 2] != "(?":
-            if not in_class:
-                ci.append(ci[-1])
+            ci.append(ci[-1])
             out.append(ch)
             i += 1
             continue
-        if ch == "(" and src[i:i + 2] == "(?" and not in_class:
-            # Inside a character class `(?-i:` is five literal characters, not a
-            # modifier, so it falls through to the literal handling below.
-            #
+        if ch == "(" and src[i:i + 2] == "(?":
             # A GROUP MODIFIER IS NOT A LITERAL. `(?i:` carries a flag letter,
-            # and widening it produced `(?[i\u0130\u0131]:`, which is not a
+            # and widening it produced `(?[iİı]:`, which is not a
             # regex at all.
             #
             # ONLY the modifier itself is skipped. A first attempt copied
@@ -324,13 +423,12 @@ def _widen_dotless_i(src: str) -> str:
             flags = re.match(r"\(\?([a-zA-Z]*)(?:-([a-zA-Z]*))?([:)])", src[i:])
             name = re.match(r"\(\?P?<[A-Za-z_][A-Za-z0-9_]*>", src[i:])
             if name:
-                if not in_class:
-                    ci.append(ci[-1])
+                ci.append(ci[-1])
                 out.append(name.group(0))
                 i += name.end()
                 continue
             if flags:
-                if flags.group(3) == ":" and not in_class:
+                if flags.group(3) == ":":
                     state = ci[-1]
                     if "i" in flags.group(1):
                         state = True
@@ -340,39 +438,16 @@ def _widen_dotless_i(src: str) -> str:
                 out.append(flags.group(0))
                 i += flags.end()
                 continue
-            if not in_class:
-                ci.append(ci[-1])
+            ci.append(ci[-1])
             out.append(src[i:i + 2])
             i += 2
             continue
         if ch == "[":
-            if not in_class:
-                # A `]` that comes first in a class (after an optional `^`) is a
-                # member of it, not the end. JavaScript reads `[]` as an empty
-                # class, so it is written as an escape.
-                j = i + 1 + (src[i + 1:i + 2] == "^")
-                if src[j:j + 1] == "]":
-                    out.append(src[i:j] + "\\]")
-                    in_class = True
-                    i = j + 1
-                    continue
-            in_class = True
-        elif ch == "]":
-            in_class = False
-        elif (in_class and ci[-1] and src[i + 1:i + 2] == "-" and i + 2 < len(src)
-              and src[i + 2] not in "]\\" and _range_covers_i(ch, src[i + 2])):
-            # A RANGE covering `i` or `I`, e.g. `[a-z]`. Python's IGNORECASE
-            # lets it match U+0130 and U+0131 and `iu` does not (enumerated over
-            # every scalar; U+017F and U+212A already agree), which could turn a
-            # block into an allow. The two
-            # code points go into the same class after the range, which also
-            # keeps a NEGATED class right: `[^a-z]` under re.IGNORECASE does not
-            # match U+0130 in Python, and `[^a-z\u0130\u0131]` does not here.
-            out.append(src[i:i + 3] + DOTLESS_I)
-            i += 3
+            text, i = _widen_class(src, i, not ci[-1])
+            out.append(text)
             continue
-        elif ch in "iI" and ci[-1]:
-            out.append(ch + DOTLESS_I if in_class else "[" + ch + DOTLESS_I + "]")
+        if ch in "iI" and ci[-1]:
+            out.append("[" + ch + DOTLESS_I + "]")
             i += 1
             continue
         out.append(ch)
