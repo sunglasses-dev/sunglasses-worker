@@ -71,7 +71,7 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   rule letter matches, so a word such as one starting with U+0130 now starts
   where Python says it does. The faithful rewrite over the full word class ran
   V8's regex compiler out of heap on 0.5.8 and is still not used. Any other
-  non-ASCII letter next to a boundary can still differ. 962 of the 1,565 shipped
+  non-ASCII letter next to a boundary can still differ. 976 of the 1,580 shipped
   rules contain a boundary in a core or a guard, which is the number of rules
   this can reach rather than the number it changes. The earlier 924 counted
   core regex sources only and missed 38 rules whose boundary sits inside a
@@ -82,7 +82,7 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   Python's `\w` does not, and 4,657 of those are Unicode version skew. The
   remaining one is U+0345, an already assigned combining character that
   case-insensitive matching folds into the class. Expressing the exclusion needs
-  the `v` flag's set subtraction, which 863 of 1,587 compiled entries do not
+  the `v` flag's set subtraction, which 887 of 1,628 compiled entries do not
   currently accept, so this is constrained and disclosed rather than repaired.
   This figure is derived from the compiled artefact by the recompile script, and this sentence is the only one the script checks.
 
