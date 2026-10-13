@@ -647,7 +647,7 @@ export function isDefensivelyFramed(text, matchStart, align, matchEnd) {
   // One character left of the window is read as well, so a phrase that begins
   // on the first character of the window is judged against the text in front of
   // it and not against the edge of the window.
-  const context = windowStart > 0 ? 1 : 0;
+  const context = windowStart > 0 ? cpBefore(text, windowStart).length : 0;
   const start = windowStart - context;
   const before = asciiLower(text.slice(start, matchStart));
   let hitEnd = matchStart;
