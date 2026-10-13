@@ -20,7 +20,7 @@ export const LIMITATIONS = [
   "Whitespace normalization. Six edge-trimming cases differ at U+001C through U+001F, U+0085 and U+FEFF",
   "HTML decoding. The named set covers the common names and Python decodes the full HTML5 set. Within the ported table this runtime also lowercases every candidate, permits an omitted semicolon for every entry, reads inherited object properties and maps one canonical name to U+007E where Python returns U+02DC. Numeric references agree across the ordinary and invalid-codepoint range including an omitted semicolon, with one known difference. A reference of several hundred digits stays encoded here and becomes U+FFFD in Python",
   "Percent decoding. A string carrying an unpaired surrogate is accepted by this API with status 200 and becomes U+FFFD here where Python preserves it. Ordinary, astral and leading-BOM inputs agree",
-  "Base64 segment screening. Python str.isprintable() is approximated, a leading BOM is handled differently and a valid U+FFFD inside a decoded segment is stripped here",
+  "Base64 segment screening. The printable test reads this runtime's Unicode tables where Python reads its own, so a character assigned in one and not the other can decide a segment differently. A valid U+FFFD inside a decoded segment is kept, but is dropped with the invalid bytes when the same segment holds both",
   "The scanner 0.5.8 bounded-search protection for long single-word documents is ported; a 27,000 character document that previously exhausted the CPU limit now completes in under a fifth of a second. 30 scans per minute per IP still applies",
 ];
 
@@ -214,9 +214,38 @@ export function decodeRot13(text) {
 }
 
 function isPrintableApprox(s) {
-  // Python str.isprintable(): false for control chars (incl. \n, \t), NBSP,
-  // and line/paragraph separators.
-  return !/[\x00-\x1f\x7f-\x9f\xa0\u2028\u2029]/.test(s);
+  // Python str.isprintable(): false for every other, separator and unassigned
+  // character (control, format, private use, line/paragraph/space separators)
+  // except the plain ASCII space.
+  return !/[\p{C}\p{Z}]/u.test(s.replace(/ /g, ""));
+}
+
+// Python's b64decode (non-validating) refuses a segment whose padding cannot
+// complete the last group, and the scanner then leaves that segment as written.
+// JS atob() is more forgiving (it accepts unpadded input and refuses surplus
+// padding), so a segment the scanner keeps could be turned into noise here and
+// hide a phrase that lives in it. Decode only the segments the scanner decodes:
+// one data character left over in the last group never decodes, two need both
+// "=" and three need at least one; padding beyond that is ignored.
+function pythonB64Bytes(segment) {
+  const data = segment.replace(/=+$/, "");
+  const pad = segment.length - data.length;
+  const rem = data.length % 4;
+  if (rem === 1 || (rem === 2 && pad < 2) || (rem === 3 && pad < 1)) return null;
+  const bin = atob(data + "=".repeat((4 - rem) % 4));
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+// Python's errors='ignore': invalid bytes are dropped, while a genuine U+FFFD
+// that was encoded in the text is kept. A strict decode keeps every character;
+// only when it fails are the replacement characters removed.
+function decodeIgnoringInvalid(bytes) {
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    return new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(bytes)
+      .replace(/\ufffd/g, "");
+  }
 }
 
 // `record`, when given, is a list that each replaced segment is appended to
@@ -225,13 +254,13 @@ function isPrintableApprox(s) {
 export function decodeBase64Segments(text, record) {
   return text.replace(/[A-Za-z0-9+/]{20,}={0,2}/g, (segment) => {
     try {
-      const bin = atob(segment);
-      const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-      const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes)
-        .replace(/�/g, "");  // Python uses errors='ignore'
-      if (decoded.length > 4 && isPrintableApprox(decoded)) {
-        if (record) record.push(segment);
-        return decoded;
+      const bytes = pythonB64Bytes(segment);
+      if (bytes) {
+        const decoded = decodeIgnoringInvalid(bytes);
+        if (codePointLength(decoded) > 4 && isPrintableApprox(decoded)) {
+          if (record) record.push(segment);
+          return decoded;
+        }
       }
     } catch { /* not base64 */ }
     return segment;
