@@ -37,13 +37,7 @@ dfail = [(c["name"], sorted(set(p["ids"])-set(j["ids"]))[:5], sorted(set(j["ids"
 # and the ids only the scanner reports. The gate still fails on any other
 # difference, and it also fails on an entry that no longer shows up, so a fix
 # removes its entry in the same change.
-KNOWN_DELTAS = {
-    "test_supply_chain_skill_gym.py#41|api_response": {
-        "verdict": ("block", "allow"),
-        "only_py": ["GLS-MECH-011"],
-        "only_js": [],
-    },
-}
+KNOWN_DELTAS = {}
 known_v = {n: e["verdict"] for n, e in KNOWN_DELTAS.items()}
 known_d = {n: (e["only_py"], e["only_js"]) for n, e in KNOWN_DELTAS.items()}
 stale = sorted(set(KNOWN_DELTAS) - {v[0] for v in vfail} - {d[0] for d in dfail})

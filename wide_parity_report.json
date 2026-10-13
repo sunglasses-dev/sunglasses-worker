@@ -1,8 +1,6 @@
 {
  "verdict_fail": [],
  "id_delta": [],
- "known": [
-  "test_supply_chain_skill_gym.py#41|api_response"
- ],
+ "known": [],
  "stale_known": []
 }

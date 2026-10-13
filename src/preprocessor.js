@@ -24,7 +24,7 @@ export const LIMITATIONS = [
   "The scanner 0.5.8 bounded-search protection for long single-word documents is ported; a 27,000 character document that previously exhausted the CPU limit now completes in under a fifth of a second. 30 scans per minute per IP still applies",
 ];
 
-const HOMOGLYPHS = {
+export const HOMOGLYPHS = {
   "А": "A", "В": "B", "С": "C", "Е": "E",
   "Н": "H", "К": "K", "М": "M", "О": "O",
   "Р": "P", "Т": "T", "Х": "X",
@@ -49,12 +49,12 @@ for (let i = 0; i < 26; i++) {
   HOMOGLYPHS[String.fromCharCode(0xff41 + i)] = String.fromCharCode(97 + i);
 }
 
-const LEET = {
+export const LEET = {
   "0": "o", "1": "i", "3": "e", "4": "a", "5": "s",
   "7": "t", "@": "a", "$": "s", "!": "i",
 };
 
-const INVISIBLE_CHARS = new RegExp(
+export const INVISIBLE_CHARS = new RegExp(
   "[\u200b\u200c\u200d\u200e\u200f" +  // zero-width spaces/joiners
   "\u2060\u2061\u2062\u2063\u2064" +   // word joiner, invisible operators
   "\ufeff" +                               // BOM / zero-width no-break space
@@ -219,14 +219,20 @@ function isPrintableApprox(s) {
   return !/[\x00-\x1f\x7f-\x9f\xa0\u2028\u2029]/.test(s);
 }
 
-export function decodeBase64Segments(text) {
+// `record`, when given, is a list that each replaced segment is appended to
+// (port of preprocessor.py decode_base64_segments, scanner #345). A caller that
+// needs to know whether the pipeline decoded anything asks the pipeline.
+export function decodeBase64Segments(text, record) {
   return text.replace(/[A-Za-z0-9+/]{20,}={0,2}/g, (segment) => {
     try {
       const bin = atob(segment);
       const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
       const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes)
         .replace(/�/g, "");  // Python uses errors='ignore'
-      if (decoded.length > 4 && isPrintableApprox(decoded)) return decoded;
+      if (decoded.length > 4 && isPrintableApprox(decoded)) {
+        if (record) record.push(segment);
+        return decoded;
+      }
     } catch { /* not base64 */ }
     return segment;
   });
@@ -254,7 +260,7 @@ export function stripDelimiterPadding(text) {
   return out.join("");
 }
 
-const ENRICH_MAX_LEN = 2000;
+export const ENRICH_MAX_LEN = 2000;
 
 // Separates the enrichment views (plain / ROT13 / reversed / shape) inside the
 // normalized string — port of preprocessor.py VIEW_SEP (v0.4.3). Excerpts shown
@@ -264,6 +270,17 @@ const ENRICH_MAX_LEN = 2000;
 export const VIEW_SEP = "\x1e";
 
 export function normalize(text) {
+  return normalizeWithLength(text)[0];
+}
+
+// normalize(), plus the length of the folded plain text that the enrichment
+// gate measured: after every fold and before any view is appended (port of
+// preprocessor.py normalize_with_length, scanner #345). `record`, when given,
+// is a list that each base64 blob the pipeline replaced is appended to, in the
+// plain view and in the shadow view's own pipeline. It changes nothing else.
+// The scanner's record also carries a marker for the HTML step giving up on the
+// whole input; this port's HTML step has no such fallback, so there is none.
+export function normalizeWithLength(text, record) {
   text = text.split(VIEW_SEP).join(" ");
   // Read before stripInvisible removes them, so the plain view still loses
   // them (a split phrase keeps matching) and the shadow view sees the text.
@@ -281,13 +298,14 @@ export function normalize(text) {
     text = decodeHtmlEntities(text);
     text = decodeUrlEncoding(text);
     text = decodeHexEscapes(text);
-    text = decodeBase64Segments(text);
+    text = decodeBase64Segments(text, record);
     if (text === before) break;
   }
   text = decodeLeetspeak(text);
   text = stripDelimiterPadding(text);
   text = collapseWhitespace(text);
-  if (text.length <= ENRICH_MAX_LEN) {
+  const foldedLength = text.length;
+  if (foldedLength <= ENRICH_MAX_LEN) {
     const rot = decodeRot13(text);
     if (rot !== text) text = text + " " + VIEW_SEP + " " + rot;
     text = text + " " + VIEW_SEP + " " + [...text].reverse().join("");
@@ -305,9 +323,9 @@ export function normalize(text) {
   if (shadow !== null) {
     // Its own views, behind the separator, so an excerpt never joins it to the
     // plain text.
-    text = text + " " + VIEW_SEP + " " + normalize(shadow);
+    text = text + " " + VIEW_SEP + " " + normalizeWithLength(shadow, record)[0];
   }
-  return text;
+  return [text, foldedLength];
 }
 
 // Invisible code points that shadow printable ASCII one for one. Port of
