@@ -262,6 +262,19 @@ export function stripDelimiterPadding(text) {
 
 export const ENRICH_MAX_LEN = 2000;
 
+// Length in code points, the unit the scanner's length gates count in.
+function codePointLength(text) {
+  let n = text.length;
+  for (let i = 0; i + 1 < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const d = text.charCodeAt(i + 1);
+      if (d >= 0xdc00 && d <= 0xdfff) { n--; i++; }
+    }
+  }
+  return n;
+}
+
 // Separates the enrichment views (plain / ROT13 / reversed / shape) inside the
 // normalized string — port of preprocessor.py VIEW_SEP (v0.4.3). Excerpts shown
 // to humans are clamped at this boundary so a matched_text window can never
@@ -304,7 +317,7 @@ export function normalizeWithLength(text, record) {
   text = decodeLeetspeak(text);
   text = stripDelimiterPadding(text);
   text = collapseWhitespace(text);
-  const foldedLength = text.length;
+  const foldedLength = codePointLength(text);
   if (foldedLength <= ENRICH_MAX_LEN) {
     const rot = decodeRot13(text);
     if (rot !== text) text = text + " " + VIEW_SEP + " " + rot;

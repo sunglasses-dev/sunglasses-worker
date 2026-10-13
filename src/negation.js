@@ -96,6 +96,28 @@ const DEFENSIVE_QUOTED_GAP_RX = new RegExp(
 const ALNUM = /^[\p{L}\p{N}]$/u;
 export const isAlnum = (ch) => ch !== undefined && ch !== "" && ALNUM.test(ch);
 
+// The whole code point that ends just before index i, or starts at index i. A
+// neighbour test reads a character, and a character outside the BMP is two
+// UTF-16 units; reading one unit would test half of it.
+const cpBefore = (text, i) => {
+  if (i < 1) return undefined;
+  const lo = text.charCodeAt(i - 1);
+  if (lo >= 0xdc00 && lo <= 0xdfff && i >= 2) {
+    const hi = text.charCodeAt(i - 2);
+    if (hi >= 0xd800 && hi <= 0xdbff) return text.slice(i - 2, i);
+  }
+  return text[i - 1];
+};
+const cpAt = (text, i) => {
+  if (i >= text.length) return undefined;
+  const hi = text.charCodeAt(i);
+  if (hi >= 0xd800 && hi <= 0xdbff && i + 1 < text.length) {
+    const lo = text.charCodeAt(i + 1);
+    if (lo >= 0xdc00 && lo <= 0xdfff) return text.slice(i, i + 2);
+  }
+  return text[i];
+};
+
 export function asciiLower(text) {
   return text.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
 }
@@ -125,7 +147,7 @@ function foldsToAStart(c) {
   let v = startCache.get(c);
   if (v === undefined) {
     v = /[&%\\]/.test(replaceHomoglyphs(normalizeUnicode(stripInvisible(c))));
-    if (startCache.size > 4096) startCache.clear();
+    if (startCache.size >= 4096) startCache.clear();
     startCache.set(c, v);
   }
   return v;
@@ -488,8 +510,8 @@ function negationGoverns(gap) {
 function findClose(text, close, start, stop) {
   let pos = text.indexOf(close, start);
   while (pos !== -1 && pos + close.length <= stop) {
-    if (close !== "'" || !(pos > 0 && isAlnum(text[pos - 1])
-        && pos + 1 < text.length && isAlnum(text[pos + 1]))) {
+    if (close !== "'" || !(pos > 0 && isAlnum(cpBefore(text, pos))
+        && pos + 1 < text.length && isAlnum(cpAt(text, pos + 1)))) {
       return pos;
     }
     pos = text.indexOf(close, pos + 1);
@@ -532,7 +554,7 @@ function quotedGapHolds(gap, text, matchStart, matchEnd, align, label = false) {
 function spacedInside(text, cueEnd, matchStart) {
   return (at) => {
     if (at < 1 || at + 1 >= text.length) return false;
-    const before = text[at - 1], after = text[at + 1];
+    const before = cpBefore(text, at), after = cpAt(text, at + 1);
     if (!((isAlnum(before) || before === "-") && (isAlnum(after) || after === "-"))) return false;
     return (cueEnd < at - 1 && at + 1 < matchStart - 1) || matchStart <= at - 1;
   };
@@ -552,7 +574,7 @@ export function checkNegation(text, matchStart, align, matchEnd) {
   NEGATION_RX.lastIndex = 0;
   for (let m; (m = NEGATION_RX.exec(beforeText)) !== null;) {
     // A window that starts inside a word would read a word fragment as a cue.
-    if (m.index === 0 && windowStart > 0 && isAlnum(text[windowStart - 1])) continue;
+    if (m.index === 0 && windowStart > 0 && isAlnum(cpBefore(text, windowStart))) continue;
     const end = m.index + m[0].length;
     const gap = beforeText.slice(end);
     if (!(negationGoverns(gap) || quotedGapHolds(gap, text, matchStart, matchEnd, align))) continue;
@@ -633,7 +655,7 @@ export function isDefensivelyFramed(text, matchStart, align, matchEnd) {
   DEFENSIVE_RX.lastIndex = context;
   for (let m; (m = DEFENSIVE_RX.exec(before)) !== null;) {
     // A combining mark in front of the phrase joins it to the word before.
-    if (m.index > 0 && /^\p{M}/u.test(before.slice(m.index - 1))) continue;
+    if (m.index > 0 && /^\p{M}/u.test(cpBefore(before, m.index))) continue;
     const gap = before.slice(m.index + m[0].length);
     if (!(framingGoverns(gap) || framingQuoteHolds(gap, text, matchStart, matchEnd, align))) continue;
     if (!align || align.holds(text, start + Math.max(0, m.index - 1), hitEnd)) return true;

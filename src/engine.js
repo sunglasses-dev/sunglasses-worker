@@ -33,7 +33,7 @@ const COOCCUR_STRIDE = 600;
 // ever cuts a view that NFKC expanded more than ten times.
 const MAX_FOLDED_VIEW = 1024 * 1024;
 
-// Step 3.5 length gate — port of engine.py CORROBORATE_NORM_MAX (v0.3.3).
+// Step 3.5 length gate: port of engine.py CORROBORATE_NORM_MAX (v0.3.3).
 const CORROBORATE_NORM_MAX = 2000;
 
 function matchWindowed(rx, text) {
@@ -859,7 +859,7 @@ export function scan(text, channel = "message") {
   // fires on neither view is a keyword-only echo and is dropped. A finding that
   // step 3 downgraded is read again here: the normalized view holds hits the raw
   // text does not, and one that nothing covers gives the rule its plain severity.
-  if (text.length <= CORROBORATE_NORM_MAX) {
+  if (foldedLength <= CORROBORATE_NORM_MAX) {
     for (const [pid, pattern] of candidates) {
       const heldFinding = heldRegex.get(pid);
       if (seen.has(pid) && heldFinding === undefined) continue;
