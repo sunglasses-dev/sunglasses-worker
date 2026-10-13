@@ -176,11 +176,14 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   points Python counts as digits, which drops a match Python makes and turns a
   block into an allow. 37 rules across 41 compiled entries use a digit shorthand
   or its complement.
-- **Base64 segment screening, OPEN in three ways.** `str.isprintable()` is
-  approximated, which is the long-standing and disclosed part. Beyond it a
-  leading BOM is handled differently and a VALID U+FFFD inside a decoded segment
-  is stripped here, and neither of those is the same limitation as the
-  approximation.
+- **Base64 segment screening, OPEN in two ways.** A run is now decoded only where
+  the pip scanner decodes it: padding that cannot complete the last group leaves
+  the run as written, surplus padding is ignored, the length test counts code
+  points, a leading BOM is kept and makes the result non-printable, and a valid
+  U+FFFD is kept. What remains: `str.isprintable()` is read from this runtime's
+  Unicode tables rather than Python's, so a character assigned in one and not the
+  other can decide a segment differently, and a valid U+FFFD is still dropped
+  along with the invalid bytes when one segment holds both.
 - **100KB request cap** (Workers CPU guard). The pip scanner's own default is
   `MAX_SCAN_BYTES = 1024 * 1024`, applied to the input's length, so "no cap" was
   wrong. It is a different and larger cap, and it is configurable.
