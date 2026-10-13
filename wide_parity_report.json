@@ -1,4 +1,6 @@
 {
  "verdict_fail": [],
- "id_delta": []
+ "id_delta": [],
+ "known": [],
+ "stale_known": []
 }

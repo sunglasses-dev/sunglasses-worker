@@ -12,8 +12,16 @@ import subprocess
 import sys
 import tempfile
 
-sys.path.insert(0, os.path.expanduser("~/sunglasses-dev/glasses"))
+# Same convention as the other gates: SUNGLASSES_SRC names the scanner checkout.
+_SRC = os.environ.get("SUNGLASSES_SRC") or os.path.expanduser("~/sunglasses-dev/glasses")
+if os.path.isdir(_SRC):
+    sys.path.insert(0, _SRC)
 from sunglasses.patterns import PATTERNS  # noqa: E402
+import sunglasses  # noqa: E402
+print(f"reference scanner: {os.path.dirname(os.path.abspath(sunglasses.__file__))}")
+if os.environ.get("SUNGLASSES_SRC") and os.path.isdir(_SRC):
+    assert os.path.abspath(sunglasses.__file__).startswith(os.path.abspath(_SRC)), \
+        "SUNGLASSES_SRC is set but the scanner imported from somewhere else"
 import exrex  # noqa: E402
 
 # exrex samples are RANDOM, so this gate is nondeterministic by design — that is
