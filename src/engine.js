@@ -245,9 +245,57 @@ function pagesOf(text) {
   return pages;
 }
 
+// ── LEAD-IN MODE (port of engine.py _match_leadin, 0.6.8 / #340) ────────────
+// Six shipped regexes open with a lead-in whose whitespace takes newlines. A
+// search over a long run of blank lines retried from every newline in the run
+// and each retry read the rest of it: a 100 KB body cost seconds of CPU, and V8
+// has no regex timeout. The rule keeps its source (the match START is read by
+// the negation and framing checks); a TWIN with a lead-in that cannot cross a
+// newline finds where to start, and the start the source would have used is
+// recovered from the run around the candidate.
+//
+// Sound only for the sources the scanner lists (the compiler asks the scanner,
+// the Worker does not remake that decision): the lead-in opens each of them and
+// what follows it starts with a character that is neither whitespace nor a comma.
+const LEADIN_PUNCT = new Set([".", "!", "?", ";", ":", '"', "'", "[", "{", "("]);
+
+// Python's str.isspace(), which the scanner uses to walk back over the run.
+// JavaScript's /\s/ differs (it has U+FEFF, and lacks U+001C..U+001F and U+0085).
+function isPySpace(ch) {
+  const c = ch.charCodeAt(0);
+  return (c >= 0x09 && c <= 0x0d) || (c >= 0x1c && c <= 0x20) || c === 0x85
+    || c === 0xa0 || c === 0x1680 || (c >= 0x2000 && c <= 0x200a)
+    || c === 0x2028 || c === 0x2029 || c === 0x202f || c === 0x205f || c === 0x3000;
+}
+
+export function matchLeadin(entry, text) {
+  let pos = 0;
+  for (;;) {
+    entry.rxTwin.lastIndex = pos;
+    const first = entry.rxTwin.exec(text);
+    if (first === null) return null;
+    const at = first.index;
+    let start;
+    if (text.charAt(at) === "\n") {
+      let run = at;
+      while (run > 0 && isPySpace(text.charAt(run - 1))) run--;
+      if (run > 0 && LEADIN_PUNCT.has(text.charAt(run - 1))) start = run - 1;
+      else start = text.indexOf("\n", run);
+    } else {
+      start = at;
+    }
+    entry.rxSticky.lastIndex = start;
+    const m = entry.rxSticky.exec(text);
+    if (m !== null) return m;
+    // One code point on, so a surrogate pair is never split.
+    pos = at + (text.codePointAt(at) > 0xffff ? 2 : 1);
+  }
+}
+
 function evalRegex(entry, text, folded, pages) {
   if (folded !== undefined && canSkip(entry, folded, pages)) return null;
   if (entry.mode === "anchored") return matchAnchored(entry, text);
+  if (entry.mode === "leadin") return matchLeadin(entry, text);
   if (entry.mode === "guarded") {
     for (const g of entry.guards) {
       g.lastIndex = 0;
@@ -292,6 +340,7 @@ export const CHANNEL_ALIASES = {
 const keywordToPatterns = new Map();
 export const DEAD_REGEX_IDS = [];  // regexes that failed to construct in THIS runtime
 const regexPatterns = [];
+export const LEADIN_ENTRIES = [];  // [{ id, entry }] for the lead-in mode; the parity test reads them
 const declaredChannels = new Set();
 let keywordCount = 0;
 
@@ -312,7 +361,7 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
         // Predicates (windowed/guarded cores + doc-wide guards) run at position
         // 0 via sticky flag (mirrors Python .match) — the ReDoS guard from
         // engine.py. Plain regexes keep ordinary exec (Python .search).
-        const sticky = r.mode !== "plain" && r.mode !== "anchored";
+        const sticky = r.mode !== "plain" && r.mode !== "anchored" && r.mode !== "leadin";
         const entry = {
           mode: r.mode,
           rx: new RegExp(r.source, r.flags + (sticky ? "y" : "")),
@@ -332,6 +381,13 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
           entry.rxSticky = new RegExp(r.source, r.flags + "y");
           entry.anchors = r.anchors || [];
           entry.span = Math.max(r.span || 1, 1);
+        }
+        if (r.mode === "leadin") {
+          // The rule's own regex, sticky, for the recovered start (Python's
+          // `.match(text, pos)`); the twin, global, to find a candidate.
+          entry.rxSticky = new RegExp(r.source, r.flags + "y");
+          entry.rxTwin = new RegExp(r.twin, r.twin_flags + "g");
+          LEADIN_ENTRIES.push({ id: p.id, entry });
         }
         compiled.push(entry);
       } catch {

@@ -511,6 +511,12 @@ def _widen_dotless_i(src: str) -> str:
 PY_WHITESPACE = ("\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680"
                  "\\u2000-\\u200a\\u2028-\\u2029\\u202f\\u205f\\u3000")
 
+# The lead-in of the six lead-in sources as this converter writes it, and its twin
+# with the newline taken out of the whitespace that follows the boundary character
+# (the scanner's LEADIN_OLD and LEADIN_FAST, after conversion).
+LEADIN_JS_OLD = "[\\n.!?;:\"'\\[{(][" + PY_WHITESPACE + "]*|"
+LEADIN_JS_FAST = "[\\n.!?;:\"'\\[{(][" + PY_WHITESPACE.replace("\\u0009-\\u000d", "\\u0009\\u000b-\\u000d") + "]*|"
+
 
 def _class_spans(src: str):
     """(start, end) of every character class body, escapes respected."""
@@ -855,6 +861,31 @@ def main():
                                            "flags": fl, "anchors": terms,
                                            "span": max(span, 1),
                                            "requires": _required_literals(rx)})
+            elif rx in SunglassesEngine.LEADIN_SOURCES:
+                # LEAD-IN. The engine's fifth mode (#340): for the exact sources
+                # the scanner lists in LEADIN_SOURCES and no other regex. The rule
+                # keeps the source it wrote; a twin whose lead-in cannot cross a
+                # newline finds where to start it. Membership and the twin are the
+                # ENGINE'S OWN (LEADIN_SOURCES, LEADIN_OLD, LEADIN_FAST), converted
+                # the same way as the source, so the Worker is handed the decision
+                # and does not remake it. A twin that does not convert leaves the
+                # rule plain, as the scanner does when its twin does not compile.
+                #
+                # The twin is cut from the CONVERTED source, not converted from the
+                # scanner's twin text: `[^\\S\\n]` is a negated shorthand inside a class,
+                # which this converter leaves as JavaScript's own whitespace and not
+                # Python's. The twin has to read the same whitespace as the source,
+                # less the newline, or it starts the search somewhere the source
+                # does not.
+                old_lead = LEADIN_JS_OLD
+                if src.count(old_lead) != 1:
+                    entry["regex"].append({"mode": "plain", "source": src, "flags": fl,
+                                           "requires": _required_literals(rx)})
+                else:
+                    entry["regex"].append({"mode": "leadin", "source": src, "flags": fl,
+                                           "twin": src.replace(old_lead, LEADIN_JS_FAST),
+                                           "twin_flags": fl,
+                                           "requires": _required_literals(rx)})
             else:
                 entry["regex"].append({"mode": "plain", "source": src, "flags": fl,
                                        "requires": _required_literals(rx)})
@@ -868,6 +899,9 @@ def main():
         for ri, r in enumerate(entry["regex"]):
             flat.append({"id": entry["id"], "source": r["source"], "flags": r["flags"]})
             owners.append((idx, ri))
+            if r.get("twin") is not None:
+                flat.append({"id": entry["id"], "source": r["twin"], "flags": r["twin_flags"]})
+                owners.append((idx, ri))
             for g in r.get("guards", []):
                 flat.append({"id": entry["id"], "source": g["source"], "flags": g["flags"]})
                 owners.append((idx, ri))
