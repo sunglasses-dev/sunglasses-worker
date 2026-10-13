@@ -1,6 +1,42 @@
 {
  "verdict_fail": [],
- "id_delta": [],
+ "id_delta": [
+  [
+   "attack:homoglyph",
+   [
+    "GLS-CF-252",
+    "GLS-PI-016"
+   ],
+   []
+  ],
+  [
+   "attack:zero-width",
+   [
+    "GLS-CF-252"
+   ],
+   []
+  ],
+  [
+   "bench:OB-HOMO-01",
+   [
+    "GLS-CF-252",
+    "GLS-PI-010",
+    "GLS-PI-011",
+    "GLS-PI-016",
+    "GLS-PX-568",
+    "GLS-SCHEMA-LEAK-215"
+   ],
+   []
+  ],
+  [
+   "bench:OB-ZW-01",
+   [
+    "GLS-CF-252",
+    "GLS-PI-016"
+   ],
+   []
+  ]
+ ],
  "cases": [
   "attack:ignore-previous",
   "attack:rot13",
