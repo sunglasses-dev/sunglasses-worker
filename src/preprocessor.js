@@ -16,7 +16,7 @@ export const LIMITATIONS = [
   "ASCII letter ranges. Closed. Under case-insensitive matching a character class range that covers i or I also matches U+0130 and U+0131, as Python does, in a negated class as well. Twelve classes enumerated against every scalar match the set Python matches exactly. Word boundaries next to these two letters are a separate line below",
   "Decimal digit shorthands. The digit class here misses 750 code points Python treats as digits, which can turn a block into an allow. Reach is 37 rules",
   "Unicode version skew. 28 case-fold mappings differ between this runtime and the pip scanner's Python, all of them unassigned in the older version. Folding feeds anchors and prefilter presence checks, so the skew is not confined to matching. Neither engine is wrong, they were built against different Unicode versions",
-  "Regex offsets are UTF-16 units here and code points in Python, so windows, negation ranges, corroboration and excerpts can differ around astral characters even though matching itself is code-point aware. Reach includes 13 anchored entries, 38 windowed entries and 781 guarded cores",
+  "Regex offsets. The windows and steps that decide a result are counted in code points, as Python counts them: the negation and framing windows, the span a hit must read the same in the raw input, the resume position after a match, the character beside a keyword, the co-occurrence window, the 50 character match text and the context around a keyword. A rule searched around a rare token reads the whole document when it holds a surrogate pair. Indexes inside a view are still UTF-16 units and are only compared with each other",
   "Whitespace normalization. Six edge-trimming cases differ at U+001C through U+001F, U+0085 and U+FEFF",
   "HTML decoding. The named set covers the common names and Python decodes the full HTML5 set. Within the ported table this runtime also lowercases every candidate, permits an omitted semicolon for every entry, reads inherited object properties and maps one canonical name to U+007E where Python returns U+02DC. Numeric references agree across the ordinary and invalid-codepoint range including an omitted semicolon, with one known difference. A reference of several hundred digits stays encoded here and becomes U+FFFD in Python",
   "Percent decoding. A string carrying an unpaired surrogate is accepted by this API with status 200 and becomes U+FFFD here where Python preserves it. Ordinary, astral and leading-BOM inputs agree",
@@ -292,7 +292,7 @@ export function stripDelimiterPadding(text) {
 export const ENRICH_MAX_LEN = 2000;
 
 // Length in code points, the unit the scanner's length gates count in.
-function codePointLength(text) {
+export function codePointLength(text) {
   let n = text.length;
   for (let i = 0; i + 1 < text.length; i++) {
     const c = text.charCodeAt(i);

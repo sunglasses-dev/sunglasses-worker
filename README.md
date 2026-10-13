@@ -92,11 +92,15 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   can drop one. Measured directly under `iu` in both directions. A miss is the
   dangerous half and the old sentence hid it.
 
-- **UTF-16 offsets, OPEN.** The `u` flag makes matching step by code point; it
-  does not change JavaScript string lengths or indices. Windowed matching,
-  anchored windows, negation ranges, corroboration and excerpts still measure in
-  UTF-16 units where Python measures in code points, so their boundaries can
-  differ around astral characters.
+- **UTF-16 offsets, narrowed.** The `u` flag makes matching step by code point;
+  it does not change JavaScript string lengths or indices. The distances that
+  decide a result are now counted in code points, as Python counts them: the
+  negation and framing windows, the span a hit must read the same in the raw
+  input, the resume position after a match, the character beside a keyword, the
+  co-occurrence window, the 50 character match text and the context around a
+  keyword. A rule searched around a rare token reads the whole document when it
+  holds a surrogate pair. Indexes inside a view are still UTF-16 units and are
+  only compared with each other.
 
 - **Unicode version skew, OPEN and not closable here.** 28 case-fold mappings
   and 4,657 word characters differ between this runtime and the pip scanner's
