@@ -185,6 +185,12 @@ gate "disclosure gate" python3 disclosure_gate.py
 gate "policy parity"   python3 policy_parity.py
 gate "engine parity"   python3 engine_parity.py
 gate "channel parity"  python3 channel_parity.py
+# The engine modes a recompile needs. A recompile that lands the 0.6.8 rule sources
+# without the lead-in mode passes every parity gate above and still costs seconds
+# of CPU on a 100 KB body of newlines (#340); these three stop it.
+gate "lead-in mode parity"            node --test tests/leadin_mode_parity.test.mjs
+gate "newline run scans in budget"    node --test tests/newline_run_scan_time.test.mjs
+gate "space run scans in budget"      node --test tests/source_only_whitespace_runs.test.mjs
 # (e) THE DISCLOSURE NUMBER NOTHING WAS CHECKING. The 962-of-N sentence has
 # disclosure_gate.py and went red the moment 0.5.9 moved it. The v-flag sentence
 # one paragraph down in the same README moved too -- 862 of 1,574 -> 863 of
