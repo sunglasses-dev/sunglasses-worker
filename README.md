@@ -92,11 +92,22 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   can drop one. Measured directly under `iu` in both directions. A miss is the
   dangerous half and the old sentence hid it.
 
-- **UTF-16 offsets, OPEN.** The `u` flag makes matching step by code point; it
-  does not change JavaScript string lengths or indices. Windowed matching,
-  anchored windows, negation ranges, corroboration and excerpts still measure in
-  UTF-16 units where Python measures in code points, so their boundaries can
-  differ around astral characters.
+- **UTF-16 offsets, narrowed.** The `u` flag makes matching step by code point;
+  it does not change JavaScript string lengths or indices. The distances that
+  decide a result are now counted in code points, as Python counts them for
+  ordinary text and for paired surrogates: the negation and framing windows, the
+  span a hit must read the same in the raw input, the resume position after a
+  match, the character beside a keyword, the co-occurrence window, the 50
+  character match text and the context around a keyword. A rule searched around
+  a rare token reads the whole document when it holds any surrogate code unit,
+  paired or isolated, so the scanner's anchor window is not applied there and a
+  report can carry additional findings. Two limits remain over isolated
+  surrogates. This search is one. The other: when removing an invisible
+  character leaves two isolated halves next to each other, this runtime reads
+  them as one pair and steps over them as one character where Python keeps two
+  code points, which made decisions stricter and never looser in the
+  measurements and can change an excerpt. Indexes inside a view are still UTF-16
+  units and are only compared with each other.
 
 - **Unicode version skew, OPEN and not closable here.** 28 case-fold mappings
   and 4,657 word characters differ between this runtime and the pip scanner's
@@ -176,14 +187,15 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   points Python counts as digits, which drops a match Python makes and turns a
   block into an allow. 37 rules across 41 compiled entries use a digit shorthand
   or its complement.
-- **Base64 segment screening, OPEN in two ways.** A run is now decoded only where
-  the pip scanner decodes it: padding that cannot complete the last group leaves
-  the run as written, surplus padding is ignored, the length test counts code
-  points, a leading BOM is kept and makes the result non-printable, and a valid
-  U+FFFD is kept. What remains: `str.isprintable()` is read from this runtime's
-  Unicode tables rather than Python's, so a character assigned in one and not the
-  other can decide a segment differently, and a valid U+FFFD is still dropped
-  along with the invalid bytes when one segment holds both.
+- **Base64 segment screening, OPEN in two ways.** The padding rules now match
+  the pip scanner's: a run is decoded only where the scanner decodes it, so
+  padding that cannot complete the last group leaves the run as written and
+  surplus padding is ignored. The length test counts code points, a leading BOM
+  is kept and makes the result non-printable, and a valid U+FFFD is kept. Two
+  differences remain. `str.isprintable()` is read from this runtime's Unicode
+  tables rather than Python's, so a character assigned in one and not the other
+  can decide a segment differently. And a valid U+FFFD is still dropped along
+  with the invalid bytes when one segment holds both.
 - **100KB request cap** (Workers CPU guard). The pip scanner's own default is
   `MAX_SCAN_BYTES = 1024 * 1024`, applied to the input's length, so "no cap" was
   wrong. It is a different and larger cap, and it is configurable.

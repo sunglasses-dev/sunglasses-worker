@@ -99,7 +99,7 @@ export const isAlnum = (ch) => ch !== undefined && ch !== "" && ALNUM.test(ch);
 // The whole code point that ends just before index i, or starts at index i. A
 // neighbour test reads a character, and a character outside the BMP is two
 // UTF-16 units; reading one unit would test half of it.
-const cpBefore = (text, i) => {
+export const cpBefore = (text, i) => {
   if (i < 1) return undefined;
   const lo = text.charCodeAt(i - 1);
   if (lo >= 0xdc00 && lo <= 0xdfff && i >= 2) {
@@ -108,7 +108,7 @@ const cpBefore = (text, i) => {
   }
   return text[i - 1];
 };
-const cpAt = (text, i) => {
+export const cpAt = (text, i) => {
   if (i >= text.length) return undefined;
   const hi = text.charCodeAt(i);
   if (hi >= 0xd800 && hi <= 0xdbff && i + 1 < text.length) {
@@ -117,6 +117,36 @@ const cpAt = (text, i) => {
   }
   return text[i];
 };
+
+// The index n code points before / after index i, kept inside the text. The
+// scanner's windows and neighbour steps count code points; an index here counts
+// UTF-16 units, so a window of n characters is walked, not subtracted.
+export function cpBack(text, i, n) {
+  while (n > 0 && i > 0) {
+    i--;
+    if (i > 0) {
+      const lo = text.charCodeAt(i);
+      if (lo >= 0xdc00 && lo <= 0xdfff) {
+        const hi = text.charCodeAt(i - 1);
+        if (hi >= 0xd800 && hi <= 0xdbff) i--;
+      }
+    }
+    n--;
+  }
+  return i;
+}
+export function cpFwd(text, i, n) {
+  while (n > 0 && i < text.length) {
+    const hi = text.charCodeAt(i);
+    i++;
+    if (hi >= 0xd800 && hi <= 0xdbff && i < text.length) {
+      const lo = text.charCodeAt(i);
+      if (lo >= 0xdc00 && lo <= 0xdfff) i++;
+    }
+    n--;
+  }
+  return i;
+}
 
 export function asciiLower(text) {
   return text.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
@@ -341,7 +371,7 @@ class Walk {
   // reading shows; this port answers "yes" for any start, which is the cautious
   // answer.
   layered(reading, end) {
-    const probe = reading + this.raw.slice(end, end + 64);
+    const probe = reading + this.raw.slice(end, cpFwd(this.raw, end, 64));
     if (isAscii(probe) && !/[&%\\]/.test(probe)) return false;
     return /[&%\\\u{e0020}-\u{e007e}]/u.test(foldOf(probe)) || /[\u{e0020}-\u{e007e}]/u.test(probe);
   }
@@ -556,7 +586,8 @@ function spacedInside(text, cueEnd, matchStart) {
     if (at < 1 || at + 1 >= text.length) return false;
     const before = cpBefore(text, at), after = cpAt(text, at + 1);
     if (!((isAlnum(before) || before === "-") && (isAlnum(after) || after === "-"))) return false;
-    return (cueEnd < at - 1 && at + 1 < matchStart - 1) || matchStart <= at - 1;
+    const prev = cpBack(text, at, 1), lastOfMatch = cpBack(text, matchStart, 1);
+    return (cueEnd < prev && at + 1 < lastOfMatch) || matchStart <= prev;
   };
 }
 
@@ -567,10 +598,10 @@ function spacedInside(text, cueEnd, matchStart) {
 // `align` (a RawAlign) is passed when `text` is a view of the input and not the
 // input itself.
 export function checkNegation(text, matchStart, align, matchEnd) {
-  const windowStart = Math.max(0, matchStart - NEGATION_WINDOW);
+  const windowStart = cpBack(text, matchStart, NEGATION_WINDOW);
   const beforeText = asciiLower(text.slice(windowStart, matchStart));
   let hitEnd = matchStart;
-  if (align) hitEnd = Math.min(matchStart + RawAlign.HIT, viewEnd(text, matchStart));
+  if (align) hitEnd = Math.min(cpFwd(text, matchStart, RawAlign.HIT), viewEnd(text, matchStart));
   NEGATION_RX.lastIndex = 0;
   for (let m; (m = NEGATION_RX.exec(beforeText)) !== null;) {
     // A window that starts inside a word would read a word fragment as a cue.
@@ -579,7 +610,7 @@ export function checkNegation(text, matchStart, align, matchEnd) {
     const gap = beforeText.slice(end);
     if (!(negationGoverns(gap) || quotedGapHolds(gap, text, matchStart, matchEnd, align))) continue;
     if (!align || align.holds(
-      text, Math.max(0, windowStart + m.index - 1), hitEnd,
+      text, cpBack(text, windowStart + m.index, 1), hitEnd,
       spacedInside(text, windowStart + end, matchStart))) {
       return true;
     }
@@ -643,7 +674,7 @@ function framingQuoteHolds(gap, text, matchStart, matchEnd, align) {
 // framing must lead the same clause the payload sits in; without that bound one
 // "detects" in an intro paragraph would defuse every payload in the document.
 export function isDefensivelyFramed(text, matchStart, align, matchEnd) {
-  const windowStart = Math.max(0, matchStart - DEFENSIVE_WINDOW);
+  const windowStart = cpBack(text, matchStart, DEFENSIVE_WINDOW);
   // One character left of the window is read as well, so a phrase that begins
   // on the first character of the window is judged against the text in front of
   // it and not against the edge of the window.
@@ -651,14 +682,15 @@ export function isDefensivelyFramed(text, matchStart, align, matchEnd) {
   const start = windowStart - context;
   const before = asciiLower(text.slice(start, matchStart));
   let hitEnd = matchStart;
-  if (align) hitEnd = Math.min(matchStart + RawAlign.HIT, viewEnd(text, matchStart));
+  if (align) hitEnd = Math.min(cpFwd(text, matchStart, RawAlign.HIT), viewEnd(text, matchStart));
   DEFENSIVE_RX.lastIndex = context;
   for (let m; (m = DEFENSIVE_RX.exec(before)) !== null;) {
     // A combining mark in front of the phrase joins it to the word before.
     if (m.index > 0 && /^\p{M}/u.test(cpBefore(before, m.index))) continue;
     const gap = before.slice(m.index + m[0].length);
     if (!(framingGoverns(gap) || framingQuoteHolds(gap, text, matchStart, matchEnd, align))) continue;
-    if (!align || align.holds(text, start + Math.max(0, m.index - 1), hitEnd)) return true;
+    if (!align || align.holds(
+      text, m.index === 0 ? start : cpBack(text, start + m.index, 1), hitEnd)) return true;
   }
   return false;
 }
@@ -727,7 +759,8 @@ export function samePlace(view, a, b, lo, hi, base) {
   const src = blo + (a - lo);
   const n = b - a;
   if (src < blo || src + n > bhi) return false;
-  const left = a > lo ? 1 : 0;
-  const right = b < hi ? 1 : 0;
-  return view.slice(a - left, b + right) === view.slice(src - left, src + n + right);
+  // One whole character on each side, not one UTF-16 unit.
+  const aFrom = a > lo ? cpBack(view, a, 1) : a, srcFrom = a > lo ? cpBack(view, src, 1) : src;
+  const bTo = b < hi ? cpFwd(view, b, 1) : b, srcTo = b < hi ? cpFwd(view, src + n, 1) : src + n;
+  return view.slice(aFrom, bTo) === view.slice(srcFrom, srcTo);
 }

@@ -4,11 +4,12 @@
 import { MECHANISMS } from "./mechanisms.js";
 import { PATTERNS } from "./patterns.js";
 import {
-  decodeShadowAscii, normalizeUnicode, normalizeWithLength, replaceHomoglyphs, stripInvisible,
+  codePointLength, decodeShadowAscii, normalizeUnicode, normalizeWithLength, replaceHomoglyphs, stripInvisible,
   VIEW_SEP,
 } from "./preprocessor.js";
 import {
-  RawAlign, checkNegation, enrichmentSpans, isDefensivelyFramed, isPySpace, samePlace, viewEnd,
+  RawAlign, checkNegation, cpAt, cpBack, cpBefore, cpFwd, enrichmentSpans, isDefensivelyFramed, isPySpace,
+  samePlace, viewEnd,
 } from "./negation.js";
 
 const SEVERITY_ORDER = { critical: 4, high: 3, medium: 2, low: 1, review: 0 };
@@ -36,18 +37,41 @@ const MAX_FOLDED_VIEW = 1024 * 1024;
 // Step 3.5 length gate: port of engine.py CORROBORATE_NORM_MAX (v0.3.3).
 const CORROBORATE_NORM_MAX = 2000;
 
+// The window and the stride are counted in code points, as the scanner counts
+// them. A text with no surrogate pair is walked by index, as before.
+const SURROGATE = /[\ud800-\udfff]/;
+
 function matchWindowed(rx, text) {
-  if (text.length <= COOCCUR_WINDOW) {
+  if (!SURROGATE.test(text)) {
+    if (text.length <= COOCCUR_WINDOW) {
+      rx.lastIndex = 0;
+      return rx.exec(text);
+    }
+    for (let i = 0; i < text.length; i += COOCCUR_STRIDE) {
+      rx.lastIndex = 0;
+      const m = rx.exec(text.slice(i, i + COOCCUR_WINDOW));
+      if (m) return m;
+      if (i + COOCCUR_WINDOW >= text.length) break;
+    }
+    return null;
+  }
+  const total = codePointLength(text);
+  if (total <= COOCCUR_WINDOW) {
     rx.lastIndex = 0;
     return rx.exec(text);
   }
-  for (let i = 0; i < text.length; i += COOCCUR_STRIDE) {
+  for (let at = 0, i = 0; at < total; at += COOCCUR_STRIDE, i = cpFwd(text, i, COOCCUR_STRIDE)) {
     rx.lastIndex = 0;
-    const m = rx.exec(text.slice(i, i + COOCCUR_WINDOW));
+    const m = rx.exec(text.slice(i, cpFwd(text, i, COOCCUR_WINDOW)));
     if (m) return m;
-    if (i + COOCCUR_WINDOW >= text.length) break;
+    if (at + COOCCUR_WINDOW >= total) break;
   }
   return null;
+}
+
+// The first n code points of a string: the cut never lands inside a pair.
+function cpHead(s, n) {
+  return s.slice(0, cpFwd(s, 0, n));
 }
 
 // Port of engine.py _eval_regex (v0.3.3). "guarded" = caret-led predicate:
@@ -85,7 +109,9 @@ function matchAnchored(entry, text, start = 0) {
   const folded = fold(text);
   // A position found in a differently sized string points somewhere else in the
   // document. engine.py searches everything rather than guess; so does this.
-  if (folded.length !== length) return searchBounded(entry, text, start, length);
+  // The span is a number of code points and the windows below are ranges of
+  // UTF-16 units, so a document with a surrogate pair is searched whole too.
+  if (folded.length !== length || SURROGATE.test(text)) return searchBounded(entry, text, start, length);
 
   // A document can be MADE of the anchor, and then the merged windows cover it
   // and anchoring saves nothing. Stop as soon as that is known: the threshold is
@@ -405,7 +431,7 @@ const ALNUM = /[\p{L}\p{N}]/u;
 // attackers a one-character evasion (benchmark case OB-B64x2-01).
 function wordBounded(text, start, keyword) {
   const end = start + keyword.length;
-  if (end < text.length && ALNUM.test(keyword.slice(-1)) && ALNUM.test(text[end])) return false;
+  if (end < text.length && ALNUM.test(cpBefore(keyword, keyword.length)) && ALNUM.test(cpAt(text, end))) return false;
   return true;
 }
 
@@ -419,8 +445,8 @@ const PY_STRIP = /^[\s\x1c-\x1f\x85]+|[\s\x1c-\x1f\x85]+$/gu;
 // plain/ROT13/reversed view boundary and splice decoded gibberish into
 // matched_text.
 function excerpt(normalized, kwStart, kwEnd) {
-  let start = Math.max(0, kwStart - 10);
-  let end = Math.min(normalized.length, kwEnd + 20);
+  let start = cpBack(normalized, kwStart, 10);
+  let end = cpFwd(normalized, kwEnd, 20);
   // rfind(VIEW_SEP, start, kwStart) — guard kwStart===0, where JS lastIndexOf
   // with a negative fromIndex would still probe index 0 (Python's range is empty).
   if (kwStart > 0) {
@@ -474,7 +500,7 @@ function matchEnd(m) {
 // this one. A lead-in rule that began at a boundary character skips the blanks
 // behind it too, because a start inside them reads the same words again.
 function resumeAfter(mode, view, m) {
-  let pos = m.index + 1;
+  let pos = cpFwd(view, m.index, 1);
   if (mode === "leadin") {
     const c = view.charAt(m.index);
     if (c === "\n" || LEADIN_PUNCT.has(c)) {
@@ -714,10 +740,10 @@ export function scan(text, channel = "message") {
   if (/[^\x00-\x7f]/.test(text)) {
     const stripped = stripInvisible(text);
     folded = replaceHomoglyphs(normalizeUnicode(stripped));
-    if (folded.length > MAX_FOLDED_VIEW) {
+    if (folded.length > MAX_FOLDED_VIEW && codePointLength(folded) > MAX_FOLDED_VIEW) {
       compact = replaceHomoglyphs(stripped);
       if (compact === text) compact = null;
-      folded = folded.slice(0, MAX_FOLDED_VIEW);
+      folded = folded.slice(0, cpFwd(folded, 0, MAX_FOLDED_VIEW));
     }
     if (folded === text) folded = null;
   }
@@ -830,10 +856,10 @@ export function scan(text, channel = "message") {
           isNormalized ? viewEnd(normalized, m.index) : null,
           isNormalized ? tail : null, isNormalized ? spans : null, laterSpent, framed);
         if (cover !== null) {
-          if (heldHit === null) heldHit = held(pattern, m[0].slice(0, 50), cover);
+          if (heldHit === null) heldHit = held(pattern, cpHead(m[0], 50), cover);
           continue;
         }
-        findings.push(makeFinding(pattern, m[0].slice(0, 50), false));
+        findings.push(makeFinding(pattern, cpHead(m[0], 50), false));
         heldHit = null;
         decided = true;
         break;      // raw decided first; later subjects are only read while covered
@@ -873,16 +899,16 @@ export function scan(text, channel = "message") {
           laterSpent, framed);
         if (cover !== null) {
           if (heldFinding === undefined && pending === null) {
-            pending = held(pattern, m[0].slice(0, 50), cover);
+            pending = held(pattern, cpHead(m[0], 50), cover);
           }
           continue;
         }
         if (heldFinding !== undefined) {
           restore(heldFinding);
-          heldFinding.matched_text = m[0].slice(0, 50);
+          heldFinding.matched_text = cpHead(m[0], 50);
         } else {
           seen.add(pid);
-          findings.push(makeFinding(pattern, m[0].slice(0, 50), false));
+          findings.push(makeFinding(pattern, cpHead(m[0], 50), false));
           pending = null;
         }
         break;
