@@ -20,7 +20,7 @@ export const LIMITATIONS = [
   "Whitespace normalization. Six edge-trimming cases differ at U+001C through U+001F, U+0085 and U+FEFF",
   "HTML decoding. The named set covers the common names and Python decodes the full HTML5 set. Within the ported table this runtime also lowercases every candidate, permits an omitted semicolon for every entry, reads inherited object properties and maps one canonical name to U+007E where Python returns U+02DC. Numeric references agree across the ordinary and invalid-codepoint range including an omitted semicolon, with one known difference. A reference of several hundred digits stays encoded here and becomes U+FFFD in Python",
   "Percent decoding. A string carrying an unpaired surrogate is accepted by this API with status 200 and becomes U+FFFD here where Python preserves it. Ordinary, astral and leading-BOM inputs agree",
-  "Base64 segment screening. The printable test reads this runtime's Unicode tables where Python reads its own, so a character assigned in one and not the other can decide a segment differently. A valid U+FFFD inside a decoded segment is kept, but is dropped with the invalid bytes when the same segment holds both",
+  "Base64 segment screening. The printable test reads this runtime's Unicode tables where Python reads its own, so a character assigned in one and not the other can decide a segment differently.",
   "The scanner 0.5.8 bounded-search protection for long single-word documents is ported; a 27,000 character document that previously exhausted the CPU limit now completes in under a fifth of a second. 30 scans per minute per IP still applies",
 ];
 
@@ -237,15 +237,55 @@ function pythonB64Bytes(segment) {
 }
 
 // Python's errors='ignore': invalid bytes are dropped, while a genuine U+FFFD
-// that was encoded in the text is kept. A strict decode keeps every character;
-// only when it fails are the replacement characters removed.
+// that was encoded in the text (EF BF BD) is kept. A strict decode keeps every
+// character. When it fails the bytes are walked here, because a replacing
+// decoder cannot tell a replacement character it wrote from one that was
+// encoded, and removing both joins the text on either side of it.
 function decodeIgnoringInvalid(bytes) {
   try {
     return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch {
-    return new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(bytes)
-      .replace(/\ufffd/g, "");
+    return decodeSkippingInvalid(bytes);
   }
+}
+
+// The well-formed sequences of UTF-8 (Unicode table 3-7): lead byte, the range
+// of the second byte, and how many continuation bytes follow. Anything else is
+// skipped one byte at a time, which drops the same bytes as skipping the
+// maximal invalid prefix, because the bytes after a bad lead cannot start a
+// sequence themselves.
+function decodeSkippingInvalid(bytes) {
+  const parts = [];
+  let run = [];
+  const flush = () => {
+    if (run.length) { parts.push(String.fromCodePoint(...run)); run = []; }
+  };
+  const n = bytes.length;
+  for (let i = 0; i < n;) {
+    const b = bytes[i];
+    let need = 0, lo = 0x80, hi = 0xbf, cp = 0;
+    if (b < 0x80) { run.push(b); i += 1; if (run.length >= 4096) flush(); continue; }
+    else if (b >= 0xc2 && b <= 0xdf) { need = 1; cp = b & 0x1f; }
+    else if (b >= 0xe0 && b <= 0xef) {
+      need = 2; cp = b & 0x0f;
+      if (b === 0xe0) lo = 0xa0;
+      if (b === 0xed) hi = 0x9f;
+    } else if (b >= 0xf0 && b <= 0xf4) {
+      need = 3; cp = b & 0x07;
+      if (b === 0xf0) lo = 0x90;
+      if (b === 0xf4) hi = 0x8f;
+    } else { i += 1; continue; }
+    let j = 1;
+    for (; j <= need; j++) {
+      const c = bytes[i + j];
+      if (c === undefined || c < (j === 1 ? lo : 0x80) || c > (j === 1 ? hi : 0xbf)) break;
+      cp = (cp << 6) | (c & 0x3f);
+    }
+    if (j > need) { run.push(cp); i += need + 1; if (run.length >= 4096) flush(); }
+    else i += 1;
+  }
+  flush();
+  return parts.join("");
 }
 
 // `record`, when given, is a list that each replaced segment is appended to
