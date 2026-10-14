@@ -167,7 +167,7 @@ function matchAnchored(entry, text, start = 0) {
 // ran past the bound and advanced the start by one. That is not the same
 // operation: a pattern whose greedy branch overshoots has a shorter branch that
 // Python finds and this discarded, and the later full-document confirmation
-// cannot recover a candidate that was never produced. ASTRA's neutral control
+// cannot recover a candidate that was never produced. The independent review's neutral control
 // is the minimal case, an unbounded expression with declared span 10 over a
 // 105 character subject: Python returns [0, 105] and this returned no match.
 //
@@ -197,10 +197,10 @@ function matchAt(entry, text, at) {
 // document missing every literal of any one clause cannot match that regex, so
 // the regex does not run.
 //
-// ASTRA measured the cost of not having it. The exact #157 document, 27,000
+// The independent review measured the cost of not having it. The exact #157 document, 27,000
 // characters of one long word, completes in Python and took 100 seconds here,
 // because every expensive pattern was run against every one of those
-// characters. This is the "regex literal prefilter" his review records as
+// characters. This is the "regex literal prefilter" the review records as
 // absent, ported as a skip test rather than as a second parser.
 //
 // SOUNDNESS COMES FROM THE DERIVATION, not from this function. A clause is

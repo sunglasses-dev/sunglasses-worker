@@ -6,7 +6,7 @@ The **pip package stays the product of record**; this is a try-before-install fr
 
 **Status: demo build. Differentially tested against the pip scanner by the gates
 below, which is not the same as parity: the deltas section lists what is still
-different and why, and ASTRA's independent review of 2026-09-13 found four of
+different and why, and an independent review of 2026-09-13 found four of
 them that these gates did not. Hosted demo: https://sunglasses.dev/api/ (same-origin mount of this Worker; `/scan` is Turnstile-gated). `pip install sunglasses` remains the product of record.**
 
 ## What it is
@@ -127,9 +127,9 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   The rewrite that added the numeric form BROKE the named one: the table is keyed
   without the terminating semicolon, so matching the stem and re-appending what
   followed turned every ordinary `&quot;` into a quote followed by a semicolon.
-  ASTRA measured 100 documents across 2 channels, 200 block-to-allow pairs on the
-  six API siblings, from one character. Our own gates did not catch it; his
-  corpus did.
+  The independent review measured 100 documents across 2 channels, 200
+  block-to-allow pairs on the six API siblings, from one character. Our own
+  gates did not catch it; its corpus did.
 
 - **Percent decoding, NARROWED 2026-09-14 after three rounds.** The port decoded
   each contiguous escape run and, when a run held invalid UTF-8, left the whole
@@ -139,7 +139,8 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   The first version of that repair walked UTF-16 units, so a literal astral
   character beside an escape was encoded as two lone surrogates and came back as
   two replacement characters, and `TextDecoder` silently ate a decoded leading
-  BOM. Both were ASTRA's neutral controls and both now agree with Python.
+  BOM. Both were the independent review's neutral controls and both now agree
+  with Python.
 
   NARROWED rather than closed, round 3. Ordinary, astral and leading-BOM inputs
   agree. A string carrying an UNPAIRED SURROGATE still differs, becoming U+FFFD
