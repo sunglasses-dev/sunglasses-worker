@@ -20,8 +20,8 @@
 // hit at its plain severity.
 import {
   HOMOGLYPHS, INVISIBLE_CHARS, LEET, VIEW_SEP, ENRICH_MAX_LEN,
-  decodeHtmlEntities, decodeRot13, decodeShadowAscii, normalizeUnicode,
-  replaceHomoglyphs, stripInvisible,
+  decodeHexEscapes, decodeHtmlEntities, decodeRot13, decodeShadowAscii,
+  decodeUrlEncoding, normalizeUnicode, replaceHomoglyphs, stripInvisible,
 } from "./preprocessor.js";
 
 export const NEGATION_WINDOW = 50;
@@ -223,6 +223,23 @@ function foldsToEscape(text, j) {
 
 const foldOf = (text) => replaceHomoglyphs(normalizeUnicode(stripInvisible(text)));
 
+const ENTITY_SHAPED = /&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*)/;
+
+// The text after the pipeline's character steps and its escape passes, repeated
+// until nothing changes, as normalize() does. null when an entity-shaped
+// reference turns up, because this port cannot tell whether the scanner's
+// larger name table decodes it.
+function unwrapped(text) {
+  text = foldOf(text);
+  for (let n = 0; n < 3; n++) {
+    if (ENTITY_SHAPED.test(text)) return null;
+    const before = text;
+    text = decodeHexEscapes(decodeUrlEncoding(text));
+    if (text === before) break;
+  }
+  return ENTITY_SHAPED.test(text) ? null : text;
+}
+
 // True when the run, folded, has room for a blob. Shadow tags count as the
 // ASCII they shadow.
 function runCouldHoldABlob(run) {
@@ -366,14 +383,39 @@ class Walk {
     return k < this.leftover.length ? this.leftover[k] : this.view.length;
   }
 
-  // True when the reading, or the raw text right after it, holds the start of
-  // an escape. The scanner works out whether the pipeline decodes more than the
-  // reading shows; this port answers "yes" for any start, which is the cautious
-  // answer.
+  // True when the pipeline decodes more than this reading shows: the reading
+  // is not a fixed point of the escape passes, or decoding it together with the
+  // raw text after it gives something other than the reading followed by what
+  // that text decodes to alone, or its own unfinished escape may be completed
+  // past the 64-character window. Ported from the scanner's check.
+  //
+  // ONE PLACE IS CAUTIOUS ON PURPOSE. The scanner knows every HTML entity name
+  // and this port knows a subset, so whenever the text holds anything shaped
+  // like an entity the answer is "yes" without decoding it. Everything else
+  // (percent escapes, hex escapes, folds, invisible characters, a lone & or a
+  // tag character that starts nothing) is decided the way the scanner decides it.
   layered(reading, end) {
-    const probe = reading + this.raw.slice(end, cpFwd(this.raw, end, 64));
+    const stop = cpFwd(this.raw, end, 64);
+    const window = this.raw.slice(end, stop);
+    const probe = reading + window;
     if (isAscii(probe) && !/[&%\\]/.test(probe)) return false;
-    return /[&%\\\u{e0020}-\u{e007e}]/u.test(foldOf(probe)) || /[\u{e0020}-\u{e007e}]/u.test(probe);
+    const whole = unwrapped(probe);
+    const own = unwrapped(reading);
+    const rest = unwrapped(window);
+    if (whole === null || own === null || rest === null) return true;
+    if (own !== reading || whole !== reading + rest) return true;
+    // The window ends at 64 characters, and padding the pipeline removes can
+    // push the rest of the reading's own escape past that cut. An unfinished
+    // start inside the reading, within 48 characters of the cut, counts as
+    // finished.
+    if (stop < this.raw.length) {
+      const cps = Array.from(whole);
+      const mine = Array.from(foldOf(reading)).length;
+      for (let k = Math.max(0, cps.length - 48); k < Math.min(mine, cps.length); k++) {
+        if ("&%\\".includes(cps[k]) && UNFINISHED_ESCAPE.test(cps.slice(k).join(""))) return true;
+      }
+    }
+    return false;
   }
 
   equalRun(limit) {
