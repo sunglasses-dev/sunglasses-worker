@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""ASTRA's own counterexamples, both engines, four channels, per-case timeout.
+"""The independent review's own counterexamples, both engines, four channels, per-case timeout.
 
-His review of PR #22 saved 66 fixtures that separate the two engines, and his
+Its review of PR #22 saved 66 fixtures that separate the two engines, and its
 required next candidate says to use them as failing-before/passing-after gates.
 So they are a gate rather than a reading exercise.
 
@@ -19,8 +19,8 @@ if os.path.isdir(SCANNER):
 from sunglasses.engine import SunglassesEngine
 
 OUT = os.path.dirname(os.path.abspath(__file__))
-# BOTH REVIEWS, every fixture either one saved. Round 1 left 66 counterexamples
-# and round 2 added 102 more in `additional_fixtures`, and his finding index
+# BOTH REVIEWS, every fixture either one saved. The first round left 66 counterexamples
+# and the second round added 102 more in `additional_fixtures`, and its finding index
 # names 104 documents across the two. Running only the first set would have
 # reported a clean gate while 200 pairs were failing on the second.
 REVIEWS = [
@@ -94,14 +94,14 @@ vfail = [(c["name"], p["decision"], j["decision"])
 dfail = [(c["name"], sorted(set(p["ids"]) - set(j["ids"]))[:6], sorted(set(j["ids"]) - set(p["ids"]))[:6])
          for c, p, j in zip(cases, py, js) if set(p["ids"]) != set(j["ids"])]
 # A DIFFERENTIAL, not a stopwatch. The first version failed any case where the
-# port took longer than the bound, and ASTRA's C01688 takes 2.9 s here and 4.3 s
+# port took longer than the bound, and one case from the independent review takes 2.9 s here and 4.3 s
 # in the pip scanner: it is slow in BOTH engines, and calling that a port defect
 # points at the wrong thing. A document the reference engine is also slow on is
 # the scanner's characteristic. What this gate is for is the port being slower
 # than the thing it ports.
 #
 # No invented ratio. A first version used a 2x threshold, which is a number I
-# chose rather than measured, and C01688 sits at 1.9 and would have passed by
+# chose rather than measured, and one of those cases sits at 1.9 and would have passed by
 # construction. The comparison is simply whether the port is slower than the
 # engine it ports, on a document already over the bound.
 slow = [(c["name"], round(j["seconds"], 2), round(p["seconds"], 2))

@@ -2,11 +2,11 @@
 //
 //     node controls/evaluate_candidates.mjs <candidates-dir>
 //
-// WHY THIS EXISTS. ASTRA's round-4 verdict returned two acceptance items as
+// WHY THIS EXISTS. the independent review's fourth-round verdict returned two acceptance items as
 // REFUSED rather than measured: "Constructing an additional degenerate mutant
 // is REFUSED under the no-file-edit/no-new-script restrictions: supplied
 // builders expose only their fixed cases", and the same for a misleading
-// README. He was right and the fault is the harness's. The prompt forbids
+// README. It was right and the fault is the harness's. The prompt forbids
 // authoring code -- correctly, that is what the content filter cuts -- and then
 // the acceptance asked him to construct things. Those cannot both hold.
 //

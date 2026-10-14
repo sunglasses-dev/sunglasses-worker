@@ -161,7 +161,7 @@ def _short(v, n=60):
 def load_contract():
     """The reviewed classification of every pattern field. THE AUTHORITY.
 
-    ASTRA, round 1: derivation cannot be the completeness authority. A
+    The independent review, first round: derivation cannot be the completeness authority. A
     variable-name heuristic missed three real matcher reads; an unrelated dict
     named `p`, and a module with PATTERNS in a COMMENT, each produced a false
     kill on a correct artefact. Dictionary spelling is not evidence of access to
@@ -240,7 +240,7 @@ def main():
 
     # (c) EVERY CONTRACTED FIELD IS PRESERVED, per rule, BY VALUE
     #
-    # ASTRA, round 1: the first version tested PRESENCE. Six independently
+    # The independent review, first round: the first version tested PRESENCE. Six independently
     # constructed compiled mutants passed it -- two ids swapped while each
     # record kept its own other data, a nonempty regex array emptied, a severity
     # replaced with null, unexpected nested anchors added, and existing nested

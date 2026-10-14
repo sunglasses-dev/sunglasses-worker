@@ -2,7 +2,7 @@
 //
 // pattern_field_contract.json splits the source keys into `consulted` and
 // `metadata`, and its comment says metadata is "consulted by nothing" and the
-// compiler "MAY drop these". Round 2 shipped that sentence as an ASSERTION. It
+// compiler "MAY drop these". An earlier version shipped that sentence as an ASSERTION. It
 // was wrong about three of its four keys, and gate (c) was green for all of
 // them, because (c) grades what the contract says rather than what the engine
 // does. Measured here 2026-09-21 against the parity corpus:
@@ -24,7 +24,7 @@
 // engine's finding IDs, finding RECORDS and decision over the corpus. A key
 // that changes any of the three is consulted, and the gate says so and fails.
 //
-// WHAT THIS DOES NOT SAY, corrected after ASTRA round 3: it is not "proven
+// WHAT THIS DOES NOT SAY, corrected after the third round of the independent review: it is not "proven
 // inert". 136 cases cannot establish universal inertness, and the comparison is
 // those three things rather than byte-identical complete engine output. The
 // gate is bounded by its corpus and its summary line says so. A gate that
@@ -34,7 +34,7 @@
 // The DERIVATION found none of this because it scopes the Python matcher while
 // these read sites are in the JS Worker engine. That is a boundary of the
 // derivation AS IT EXISTS, not a proof that no static analysis could find them
-// -- ASTRA's correction, and he is right: the analysis could be extended to the
+// -- the independent review's correction, and it is right: the analysis could be extended to the
 // Worker source. Executing the artefact is one kind of evidence for a read
 // site, not the only kind.
 //
@@ -50,9 +50,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 
 // `--contract <path>` exists because a control that can only be pointed at the
-// CURRENT contract cannot be shown failing. ASTRA, round 3: "A green-only
+// CURRENT contract cannot be shown failing. The independent review, third round: "A green-only
 // control has baseline/smoke value but does not prove detection of the defect",
-// and with new scripts prohibited he could not assemble the red run himself, so
+// and with new scripts prohibited it could not assemble the red run itself, so
 // the red-first stayed author-reported. Now it is one argument:
 //     node controls/metadata_is_measured.mjs --contract <r2head>/pattern_field_contract.json
 // must FAIL naming category, name and description, and it must fail for the
@@ -86,7 +86,7 @@ if (!keys.length) {
 }
 
 // EXIT 2 IS EVERY WAY THIS FAILS TO MEASURE, not just the one I wrote first.
-// ASTRA, round 4, and he is right: the contract load exited 2, but a
+// The independent review, fourth round, and it is right: the contract load exited 2, but a
 // dependency failure did not. `PATH=/nonexistent` makes the corpus-export
 // subprocess unavailable, the exception propagated, node exited 1 -- the code
 // reserved for A MEASURED NONZERO DELTA. A missing interpreter impersonated a
@@ -108,13 +108,13 @@ const step = (stage, fn) => {
   catch (e) { throw new ExecutionError(stage, e); }
 };
 
-// THIRD INSTANCE OF THE SAME ERROR, ASTRA round 5 (X1, X2). I wrapped every
+// THIRD INSTANCE OF THE SAME ERROR, found in the fifth round of the independent review. I wrapped every
 // step INSIDE the try and never asked what runs BEFORE it. `mkdtempSync` is the
 // first thing that touches the filesystem, and with TMPDIR missing or not a
 // directory it threw past the handler and exited 1 -- the code reserved for a
 // measured nonzero delta, again.
 //
-// Round 4 taught "enumerate every route to each side of the distinction". The
+// A later review taught "enumerate every route to each side of the distinction". The
 // routes I enumerated were the ones I had written. This is the one I had not.
 let work;
 try {

@@ -12,7 +12,7 @@ const m = await import(`file://${join(work, `mut_${key}`, "engine.js")}`);
 // If the mutant tree had failed to copy, or the deletion line had not been
 // appended, every comparison below would find zero differences and the gate
 // would report METADATA CONTRACT OK -- a confident green produced by there
-// being nothing to compare. T10 hit the same class tonight from the other side
+// being nothing to compare. The same class turned up elsewhere from the other side
 // (an EMPTY named root reads PROCEED, a MISSING one must read REFUSED; a find
 // over a missing directory returns zero files and looks exactly like a clean
 // sandbox). So the preconditions are asserted before any delta is believed.
@@ -37,7 +37,7 @@ if (nBase !== nMut) {
   throw new Error(`rule counts differ, base=${nBase} mutant=${nMut}; the mutation `
     + `should delete a FIELD, not a rule`);
 }
-// ASTRA round 4: "rule-count equality does not establish rule identity/content
+// The independent review, fourth round: "rule-count equality does not establish rule identity/content
 // equality". Right -- a mutant tree that had been rebuilt from a different
 // source would pass a count check and measure the wrong thing. The ids are the
 // cheap identity, and they must be the same set in the same order.

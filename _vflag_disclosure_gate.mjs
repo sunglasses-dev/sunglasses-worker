@@ -49,13 +49,13 @@ for (const rule of m.PATTERNS) {
 // agreement is.
 const readmeRaw = readFileSync(`${worker}README.md`, "utf8");
 
-// ── THE SUBJECT IS THE RENDERED TEXT, and round 5 is why ────────────────────
+// ── THE SUBJECT IS THE RENDERED TEXT, and an earlier review is why ────────────────────
 //
 // This gate's own purpose, stated above, is "the number a READER is given".
 // A reader is given RENDERED markdown. So `**863**`, `&#56;63`, a non-breaking
 // space, a link label, an image's alt text and a hidden `<span>` are
 // PRESENTATION -- the reader sees the claim, the byte-level splitter did not.
-// Ten of ASTRA's nineteen false accepts were exactly that, plus a markdown
+// Ten of the independent review's nineteen false accepts were exactly that, plus a markdown
 // BLOCK boundary (a table or heading on the next line) being a boundary a
 // reader sees even where there is no full stop.
 //
@@ -66,7 +66,7 @@ const readmeRaw = readFileSync(`${worker}README.md`, "utf8");
 // thing the gate always said it was reading. After this, what remains
 // unreachable is DECLARED (below), not chased.
 //
-// Measured on ASTRA's 32 candidates, preserved in controls/candidates/:
+// Measured on the independent review's 32 candidates, preserved in controls/candidates/:
 // 19 false accepts -> 9, ten fixed, ZERO honest controls broken.
 const renderAsReaderSees = (s) => s
   .replace(/<!--[\s\S]*?-->/g, "")                       // comments: never shown
@@ -107,12 +107,12 @@ const readerUnits = (text) => {
 
 const readme = renderAsReaderSees(readmeRaw);
 
-// ROUND 5 VERDICT — THIS GATE IS RESCOPED, NOT FIXED. READ THIS BEFORE
+// REVIEW VERDICT: THIS GATE IS RESCOPED, NOT FIXED. READ THIS BEFORE
 // TRUSTING ITS GREEN.
 //
 // The allowlist below asserts ONE thing: the canonical v-flag sentence carries
 // the measured pair. It does NOT establish that the README is honest about this
-// quantity, and it cannot. ASTRA, 2026-09-21, constructed 32 misleading READMEs
+// quantity, and it cannot. The independent review, 2026-09-21, constructed 32 misleading READMEs
 // and **19 OF THEM PASSED**, across five independent classes:
 //
 //   1. STRUCTURE the splitter cannot see -- a canonical claim without its final
@@ -149,7 +149,7 @@ const readme = renderAsReaderSees(readmeRaw);
 //   32-html-hidden-claim CSS-hidden but structurally present text: "hidden"
 //                        is a rendering property this gate does not compute.
 //
-// WHAT I CLAIMED HERE WAS TOO STRONG, and round 6 was right to reject it.
+// WHAT I CLAIMED HERE WAS TOO STRONG, and the later review was right to reject it.
 // The line said "four of those nine are reachable by a markdown parser and
 // NONE by another regex". That is a categorical impossibility assertion and I
 // cannot support it: a parser supplies STRUCTURE, not prose truth, table
@@ -162,7 +162,7 @@ const readme = renderAsReaderSees(readmeRaw);
 // about this gate, not about what is possible.
 //
 // AND DECLARING EXCEPTIONS IS NOT ENFORCING A BOUNDARY, which is the real
-// finding. Round 6 authored 35 candidates and found THREE NEW FAMILIES this
+// finding. That review authored 35 candidates and found THREE NEW FAMILIES this
 // gate accepts: canonical content in unused reference definitions; literal
 // code content read as active presentation; and contradictory claims across
 // HTML block elements. Ten cases. Each is a rendering context the normaliser

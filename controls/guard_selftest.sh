@@ -3,8 +3,8 @@
 #
 # metadata_is_measured.mjs reports a key inert when deleting it changes nothing.
 # If the mutant tree were never actually mutated, it would change nothing for a
-# different reason and print exactly the same word. T10, 2026-09-21, on the same
-# class from the other side: an EMPTY named root reads PROCEED while a MISSING
+# different reason and print exactly the same word. The same
+# class turned up on 2026-09-21 from the other side: an EMPTY named root reads PROCEED while a MISSING
 # one must read REFUSED, because a find over a missing directory returns zero
 # files and looks exactly like a clean sandbox.
 #
@@ -69,9 +69,9 @@ row "no mutant tree at all"          refused  build_missing
 row_key mechanism "a key the compiler legitimately drops" accepted build_proper_key
 
 # ── EXIT CODE SEPARATION ─────────────────────────────────────────────────────
-# ASTRA round 4 broke the claim these rows now defend. Exit 1 must mean A DELTA
+# The fourth round of the independent review broke the claim these rows now defend. Exit 1 must mean A DELTA
 # WAS MEASURED AND WAS NONZERO; exit 2 must mean the run never measured
-# anything. He found the second half missing: with the contract present but the
+# anything. It found the second half missing: with the contract present but the
 # corpus exporter unreachable, the exception propagated and node exited 1, so a
 # missing interpreter read as a real finding.
 #
@@ -88,15 +88,15 @@ code_row () { # name, want, then the command
 code_row "no contract argument"        2 node "$ROOT/controls/metadata_is_measured.mjs" --contract
 code_row "contract path does not exist" 2 node "$ROOT/controls/metadata_is_measured.mjs" --contract /nonexistent/c.json
 code_row "contract has no metadata.keys" 2 node "$ROOT/controls/metadata_is_measured.mjs" --contract "$CASES"
-# THE ROW ASTRA ADDED: the contract is fine, the DEPENDENCY is not. The
+# THE ROW THE INDEPENDENT REVIEW ADDED: the contract is fine, the DEPENDENCY is not. The
 # ABSOLUTE node path matters -- with a bare `node` the shell cannot find the
 # interpreter either and returns 127 before any of our code runs, which tests
-# the shell rather than the control. His case was node running FINE and its
+# the shell rather than the control. Its case was node running FINE and its
 # children unreachable.
 NODE_BIN="$(command -v node)"
 code_row "the corpus exporter is unreachable" 2 env PATH=/nonexistent "$NODE_BIN" "$ROOT/controls/metadata_is_measured.mjs"
 # And the per-key child, one layer further in than the exporter.
-# ASTRA round 5, X1 and X2: the FIRST filesystem touch is before the try block,
+# The independent review, fifth round: the FIRST filesystem touch is before the try block,
 # so a bad TMPDIR threw past the handler and exited 1. Third time the untested
 # route was the one I had not written; these two rows are now the enumeration.
 code_row "TMPDIR does not exist"          2 env TMPDIR=/nonexistent "$NODE_BIN" "$ROOT/controls/metadata_is_measured.mjs"

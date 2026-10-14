@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "REVIEWED CONTRACT for what a compiled rule must carry. ASTRA, PR #24 round 1:",
+    "REVIEWED CONTRACT for what a compiled rule must carry. The independent review, PR #24, first round:",
     "a derivation cannot be the completeness authority. A variable-name heuristic",
     "missed three real matcher reads, and an unrelated dict named `p` plus a module",
     "with PATTERNS in a COMMENT each produced a false kill on a correct artefact.",
@@ -11,7 +11,7 @@
     "as consulted or as metadata. Derivation still runs and is reported as",
     "DIAGNOSTIC evidence beside it, never as the verdict.",
     "",
-    "ROUND 2 WAS WRONG ABOUT THREE OF ITS FOUR METADATA KEYS, and gate (c) was",
+    "AN EARLIER VERSION WAS WRONG ABOUT THREE OF ITS FOUR METADATA KEYS, and gate (c) was",
     "green for all three, because (c) grades the artefact against this file and",
     "this file's metadata bucket was an assertion nobody had executed. Measured",
     "2026-09-21 over the 136-case parity corpus, deleting each key from the",
@@ -21,7 +21,7 @@
     "metadata keys on every run, so `metadata` is a measurement rather than a",
     "claim. A reader that grades itself is what this whole file exists to stop.",
     "",
-    "WHAT THAT CONTROL DOES AND DOES NOT ESTABLISH (ASTRA round 3, adopted): it",
+    "WHAT THAT CONTROL DOES AND DOES NOT ESTABLISH (independent review, third round, adopted): it",
     "compares finding IDs, finding RECORDS and the decision over a 136-case",
     "corpus. That is neither byte-identical whole-output comparison nor enough",
     "cases to establish universal inertness, so the honest statement is: no",
@@ -97,7 +97,7 @@
     }
   },
   "metadata": {
-    "_comment": "Consulted by nothing AND emitted by nothing -- the compiler MAY drop these, and `mechanism` is dropped on the one rule that carries it. If it emits one it must EQUAL the source, and it may never invent one the source does not carry. controls/metadata_is_measured.mjs deletes every key listed here from the compiled rule set and requires the engine's finding IDs, finding records and decision to be unchanged over the parity corpus. WHAT THAT GREEN IS NOT (ASTRA round 4, narrowing round 3's narrowing): it is an observation about THIS ARTEFACT, not an enforced invariant. The gate does not make the compiler drop the key, does not assert a required rule total, and does not compare source-present against compiled-absent. It would also pass a key that HAS carriers if deleting them happened to produce no delta on this corpus. So its green is not proof that dropping the field preserves Python or Worker behaviour. Adding a key here without that control going green is how round 2 shipped three wrong ones; reading its green as an invariant would be the next mistake.",
+    "_comment": "Consulted by nothing AND emitted by nothing -- the compiler MAY drop these, and `mechanism` is dropped on the one rule that carries it. If it emits one it must EQUAL the source, and it may never invent one the source does not carry. controls/metadata_is_measured.mjs deletes every key listed here from the compiled rule set and requires the engine's finding IDs, finding records and decision to be unchanged over the parity corpus. WHAT THAT GREEN IS NOT (independent review, a later pass, narrowing an earlier pass's narrowing): it is an observation about THIS ARTEFACT, not an enforced invariant. The gate does not make the compiler drop the key, does not assert a required rule total, and does not compare source-present against compiled-absent. It would also pass a key that HAS carriers if deleting them happened to produce no delta on this corpus. So its green is not proof that dropping the field preserves Python or Worker behaviour. Adding a key here without that control going green is how an earlier version shipped three wrong ones; reading its green as an invariant would be the next mistake.",
     "keys": [
       "mechanism"
     ],
