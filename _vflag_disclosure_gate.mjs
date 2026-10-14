@@ -55,7 +55,7 @@ const readmeRaw = readFileSync(`${worker}README.md`, "utf8");
 // A reader is given RENDERED markdown. So `**863**`, `&#56;63`, a non-breaking
 // space, a link label, an image's alt text and a hidden `<span>` are
 // PRESENTATION -- the reader sees the claim, the byte-level splitter did not.
-// Ten of ASTRA's nineteen false accepts were exactly that, plus a markdown
+// Ten of the independent review's nineteen false accepts were exactly that, plus a markdown
 // BLOCK boundary (a table or heading on the next line) being a boundary a
 // reader sees even where there is no full stop.
 //
@@ -66,7 +66,7 @@ const readmeRaw = readFileSync(`${worker}README.md`, "utf8");
 // thing the gate always said it was reading. After this, what remains
 // unreachable is DECLARED (below), not chased.
 //
-// Measured on ASTRA's 32 candidates, preserved in controls/candidates/:
+// Measured on the independent review's 32 candidates, preserved in controls/candidates/:
 // 19 false accepts -> 9, ten fixed, ZERO honest controls broken.
 const renderAsReaderSees = (s) => s
   .replace(/<!--[\s\S]*?-->/g, "")                       // comments: never shown
@@ -112,7 +112,7 @@ const readme = renderAsReaderSees(readmeRaw);
 //
 // The allowlist below asserts ONE thing: the canonical v-flag sentence carries
 // the measured pair. It does NOT establish that the README is honest about this
-// quantity, and it cannot. ASTRA, 2026-09-21, constructed 32 misleading READMEs
+// quantity, and it cannot. The independent review, 2026-09-21, constructed 32 misleading READMEs
 // and **19 OF THEM PASSED**, across five independent classes:
 //
 //   1. STRUCTURE the splitter cannot see -- a canonical claim without its final

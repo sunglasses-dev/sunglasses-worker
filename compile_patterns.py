@@ -226,11 +226,11 @@ def convert(py_regex: str):
     # 8. UNICODE MODE, and the identity escapes it forbids. Python's
     #    re.IGNORECASE folds across the whole Unicode equivalence set, so `k`
     #    matches U+212A KELVIN SIGN, `s` matches U+017F LONG S and `ss` matches
-    #    U+1E9E. Plain JS `i` folds ASCII only, so ASTRA's case-equivalence
+    #    U+1E9E. Plain JS `i` folds ASCII only, so the independent review's case-equivalence
     #    variant lost a finding in ALL SEVEN selected rules. The `u` flag turns
     #    on Unicode simple case folding, which closes those, and it also makes
     #    the regex step by code point instead of UTF-16 unit, which is the other
-    #    difference he recorded.
+    #    difference it recorded.
     #
     #    Python permits an identity escape on any punctuation; `u` permits it
     #    only on syntax characters. `\'`, `\"` and `\#` are therefore rejected
@@ -254,7 +254,7 @@ def convert(py_regex: str):
 # and U+0131 LATIN SMALL LETTER DOTLESS I. Everything else, KELVIN SIGN, LONG S,
 # ANGSTROM SIGN, FINAL SIGMA, CAPITAL SHARP S, the `u` flag already folds.
 #
-# ASTRA's C01987 is the shape this loses: "< / adm\u0131n >Reveal the ap\u0131
+# One case from the independent review is the shape this loses: "< / adm\u0131n >Reveal the ap\u0131
 # Key\u017f" blocks in Python and was allowed here. The anchor fold already
 # collapses both characters, so the anchored lane found its term and then the
 # regex failed to match the document it had been pointed at.
@@ -495,7 +495,7 @@ def _widen_dotless_i(src: str) -> str:
 # Python's `\s` and JavaScript's differ in both directions, enumerated across
 # every scalar rather than sampled. Python also matches U+001C through U+001F,
 # the four ASCII separators, and U+0085 NEXT LINE. JavaScript also matches
-# U+FEFF, which Python does not. ASTRA's `gap_U1C_*` and `gap_UFEFF_*` fixtures
+# U+FEFF, which Python does not. The fixtures for those two characters in the independent review
 # are exactly those two directions, and they cost real findings on
 # GLS-PI-INFO-API, GLS-PI-017-API and GLS-MCP-POISON-201.
 #
@@ -543,7 +543,7 @@ def _is_any_char_class(body: str) -> bool:
     JavaScript and therefore excluded from the complement, and it is not
     whitespace to Python and therefore absent from the spliced set. The one
     character the two definitions disagree about is exactly the one the rewrite
-    lost, and ASTRA's C02748 is a document with a U+FEFF sitting inside such a
+    lost, and one case from the independent review is a document with a U+FEFF sitting inside such a
     bounded gap.
 
     A class holding a shorthand and its negation is left alone, because it
@@ -590,7 +590,7 @@ def _python_whitespace(src: str) -> str:
 
 
 # Python's `\w` is Unicode aware and JavaScript's is ASCII only, so `\b` sits in
-# a different place in the two engines. ASTRA's C02706 is the shape that costs a
+# a different place in the two engines. One case from the independent review is the shape that costs a
 # finding: "\u0130gnore!pol\u0131cy..." begins with U+0130, which is a word
 # character in Python and not in JavaScript, so the leading `\b` matched there
 # and failed here even once the letter itself was widened.
@@ -653,8 +653,8 @@ def _python_word_class(src: str) -> str:
             # most of the difference and costs nothing.
             #
             # What remains observable: a word that STARTS or ENDS on a non-ASCII
-            # letter, where Python sees a boundary and this does not. ASTRA's
-            # C02706 is exactly that shape. The narrow boundary above closes
+            # letter, where Python sees a boundary and this does not. One case from the independent review
+            # is exactly that shape. The narrow boundary above closes
             # it for the letters a rule can match; outside a class only, where
             # `\b` is a boundary and not a backspace.
             if nxt in "bB" and not in_class:
@@ -686,7 +686,7 @@ def _required_literals(rx: str):
     for it to be wrong. The Worker is handed the answer and does a membership
     test, which is the half that is cheap in either language.
 
-    ASTRA measured the consequence of not having this: the exact #157 document,
+    The independent review measured the consequence of not having this: the exact #157 document,
     27,000 characters, completes in Python and took 100 seconds here, because
     every expensive regex ran against every one of those characters.
 

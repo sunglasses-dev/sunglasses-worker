@@ -3,7 +3,7 @@
 // Text diff cannot answer this: PATTERNS is one enormous line, so any change
 // anywhere reports the whole array as different. And the compiler's anchor
 // extraction is ORDER UNSTABLE. Rebuilding identical sources permutes a few
-// `anchors` arrays, which ASTRA also observed ("zero compiled-record differences
+// `anchors` arrays, which the independent review also observed ("zero compiled-record differences
 // after canonicalizing anchor order"). A comparison that did not canonicalize
 // would call every rebuild a rule change and this gate would cry wolf until
 // someone stopped reading it.

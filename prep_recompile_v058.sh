@@ -34,7 +34,7 @@ TAG="v0.5.8"
 REHEARSE="${SG_REHEARSE_REF:-}"
 
 # Measured 2026-09-14 from release/v0.5.8, identical at b4285bb / 600cb74 / main,
-# and confirmed identical at the #167 squash. ASTRA recorded the same hash as his
+# and confirmed identical at the #167 squash. The independent review recorded the same hash as its
 # reference for the tag's patterns.py, reached independently.
 EXPECTED_PATTERNS_SHA256="bb79c277ac30e56eb19bd519e32264ce2ccf36e3c48cba77919168e366736ed2"
 
@@ -73,7 +73,7 @@ echo "── 2/6 a PRIVATE checkout of the resolved commit ──"
 # from it later are two separate reads of a path a teammate owns. Between them
 # they can check out another branch mid-ship, and the build would compile from
 # whatever was there while this script still printed the sha it verified. That
-# is a time-of-check to time-of-use hole and ASTRA demonstrated it.
+# is a time-of-check to time-of-use hole and the independent review demonstrated it.
 #
 # So nothing here reads the shared tree. A private worktree is created at the
 # resolved commit, both compilers are bound to it through SG_SCANNER_ROOT, and
@@ -115,7 +115,7 @@ EMIT_C="$(grep -o 'COMPILED_FROM = "[^"]*"' src/patterns.js | cut -d'"' -f2)"
 # EXACT, NOT A PREFIX. This was `case "$TAG_SHA" in "${EMIT_C}"*)`, which asks
 # whether the emitted stamp is a PREFIX of the expected sha. An empty stamp is a
 # prefix of everything, and so is a single character, so a build that emitted
-# nothing at all passed and printed READY. ASTRA found it; reproduced before the
+# nothing at all passed and printed READY. The independent review found it; reproduced before the
 # fix: '' accepted, 'b' accepted.
 #
 # Recognising a resemblance is not recognising the value. The stamp now has to
@@ -138,7 +138,7 @@ echo "── 5/6 the RULES did not move, only the stamp ──"
 # Compared semantically, not as text. PATTERNS is one enormous line, so a text
 # diff reports the whole array on any change, and the compiler's anchor
 # extraction is order unstable: rebuilding identical sources permutes a few
-# `anchors` arrays. ASTRA saw the same thing ("zero compiled-record differences
+# `anchors` arrays. The independent review saw the same thing ("zero compiled-record differences
 # after canonicalizing anchor order"). Measured 2026-09-14 rehearsing this script
 # against release/v0.5.8: 7 rules permuted, 0 changed, 0 added, 0 removed.
 if ! node _compare_compiled.mjs /tmp/patterns.before.js "${WORKER}/src/patterns.js"; then
@@ -151,7 +151,7 @@ echo "── 6/6 gates ──"
 # EACH GATE CHECKED EXPLICITLY. These were written as `cmd && ok "..."`, which
 # put the gate on the LEFT of `&&`. `set -e` deliberately ignores a failure
 # there, because that position is a tested context, so all three could exit
-# non-zero and the script printed RECOMPILE READY anyway. ASTRA forced exit 7 on
+# non-zero and the script printed RECOMPILE READY anyway. The independent review forced exit 7 on
 # all three and got a green run; reproduced here before it was fixed. A gate
 # whose failure cannot stop the thing it gates is not a gate.
 gate() {
@@ -168,7 +168,7 @@ gate() {
 # names are exported because the compilers and the parity scripts read different
 # ones.
 #
-# THE DISCLOSURE GATE IS NOT ONE OF THEM, per ASTRA's correction on d97870d. It
+# THE DISCLOSURE GATE IS NOT ONE OF THEM, per the independent review's correction on d97870d. It
 # imports no Python scanner module at all: it reads `src/patterns.js` and
 # `src/mechanisms.js` out of this Worker directory and compares the compiled
 # counts against the shipped disclosure strings. So neither variable affects it,

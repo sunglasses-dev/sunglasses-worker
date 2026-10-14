@@ -68,8 +68,8 @@ TAG_SHA="$(git -C "$SCANNER" rev-parse "refs/tags/${TAG}^{commit}")"
 # ── THE IDENTITY GATE, RESTORED. ─────────────────────────────────────────────
 # Making the tag an argument was right; deleting this with it was not. The 9-14
 # recipe pinned EXPECTED_TAG_COMMIT, and when I replaced the four typed pins with
-# "read every pin out of the private checkout" I took this one too. ASTRA showed
-# the cost on 2026-09-20: he moved v0.5.9 onto a new, unreviewed commit that still
+# "read every pin out of the private checkout" I took this one too. The independent review showed
+# the cost on 2026-09-20: it moved v0.5.9 onto a new, unreviewed commit that still
 # carried __version__ 0.5.9, and the whole new recipe accepted it, passed four
 # gates and printed READY. The OLD four-pin recipe refused the same moved tag
 # before compiling.
@@ -100,7 +100,7 @@ echo "── 2/6 a PRIVATE checkout of the resolved commit ──"
 # Verifying that ~/sunglasses-dev/glasses sits at the tag and then importing from
 # it later are two separate reads of a path a teammate owns; between them they
 # can check out another branch mid-ship and the build would compile from whatever
-# was there while this script printed the sha it verified. ASTRA demonstrated
+# was there while this script printed the sha it verified. The independent review demonstrated
 # that hole on 2026-09-14. Nothing here reads the shared tree.
 PRIVATE="$(mktemp -d /private/tmp/sg-recompile-XXXXXX)"
 cleanup() { git -C "$SCANNER" worktree remove --force "$PRIVATE" >/dev/null 2>&1 || true; rm -rf "$PRIVATE"; }
@@ -142,7 +142,7 @@ EMIT_C="$(grep -o 'COMPILED_FROM = "[^"]*"' src/patterns.js | cut -d'"' -f2)"
 # EXACT, NOT A PREFIX. This was `case "$TAG_SHA" in "${EMIT_C}"*)`, which asks
 # whether the emitted stamp is a PREFIX of the expected sha. An empty stamp is a
 # prefix of everything, and so is one character, so a build that emitted nothing
-# passed and printed READY. ASTRA found it 2026-09-14; '' accepted, 'b' accepted.
+# passed and printed READY. The independent review found it 2026-09-14; '' accepted, 'b' accepted.
 EXPECTED_ABBREV="$(git -C "$PRIVATE" rev-parse --short HEAD)"
 [ -n "$EMIT_C" ] || die "the build emitted an EMPTY COMPILED_FROM. An empty stamp names no commit."
 [ -n "$EXPECTED_ABBREV" ] || die "could not read the private checkout's own abbreviation"
@@ -166,7 +166,7 @@ echo "── 6/6 gates ──"
 # EACH GATE CHECKED EXPLICITLY. These were written as `cmd && ok "..."`, which
 # put the gate on the LEFT of `&&`, where `set -e` deliberately does not fire, so
 # all three could exit non-zero and the script printed RECOMPILE READY anyway.
-# ASTRA forced exit 7 on all three and got a green run. A gate whose failure
+# The independent review forced exit 7 on all three and got a green run. A gate whose failure
 # cannot stop the thing it gates is not a gate.
 gate() {
   local name="$1"; shift
@@ -177,7 +177,7 @@ gate() {
 # SG_SCANNER_ROOT; without both they read the SHARED tree while the build came
 # from the private checkout, and a green gate would describe a different engine
 # than the artefact. The disclosure gate imports no Python scanner at all (it
-# reads src/patterns.js and src/mechanisms.js out of this directory), per ASTRA's
+# reads src/patterns.js and src/mechanisms.js out of this directory), per the independent review's
 # correction on d97870d, so neither variable affects it.
 export SG_SCANNER_ROOT="$PRIVATE"
 export SUNGLASSES_SRC="$PRIVATE"
@@ -198,7 +198,7 @@ gate "space run scans in budget"      node --test tests/source_only_whitespace_r
 # re-executes it, which is the shape that left 0.5.2 numbers on a 0.5.7 site for
 # twelve days. The method was validated before it was trusted: this same script,
 # unchanged, reproduces the PUBLISHED 862 of 1,574 on the 0.5.8 artefact.
-# SCOPE, after ASTRA round 5 (2026-09-21). This gate asserts that the canonical
+# SCOPE, after the fifth round of the independent review (2026-09-21). This gate asserts that the canonical
 # v-flag sentence carries the measured pair. It does NOT establish that the
 # README is honest about the quantity: 19 of 32 constructed misleading READMEs
 # passed it, across five classes -- markdown structure the sentence splitter
