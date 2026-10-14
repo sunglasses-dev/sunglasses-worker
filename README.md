@@ -94,13 +94,20 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
 
 - **UTF-16 offsets, narrowed.** The `u` flag makes matching step by code point;
   it does not change JavaScript string lengths or indices. The distances that
-  decide a result are now counted in code points, as Python counts them: the
-  negation and framing windows, the span a hit must read the same in the raw
-  input, the resume position after a match, the character beside a keyword, the
-  co-occurrence window, the 50 character match text and the context around a
-  keyword. A rule searched around a rare token reads the whole document when it
-  holds a surrogate pair. Indexes inside a view are still UTF-16 units and are
-  only compared with each other.
+  decide a result are now counted in code points, as Python counts them for
+  ordinary text and for paired surrogates: the negation and framing windows, the
+  span a hit must read the same in the raw input, the resume position after a
+  match, the character beside a keyword, the co-occurrence window, the 50
+  character match text and the context around a keyword. A rule searched around
+  a rare token reads the whole document when it holds any surrogate code unit,
+  paired or isolated, so the scanner's anchor window is not applied there and a
+  report can carry additional findings. Two limits remain over isolated
+  surrogates. This search is one. The other: when removing an invisible
+  character leaves two isolated halves next to each other, this runtime reads
+  them as one pair and steps over them as one character where Python keeps two
+  code points, which made decisions stricter and never looser in the
+  measurements and can change an excerpt. Indexes inside a view are still UTF-16
+  units and are only compared with each other.
 
 - **Unicode version skew, OPEN and not closable here.** 28 case-fold mappings
   and 4,657 word characters differ between this runtime and the pip scanner's
