@@ -12,7 +12,7 @@ const m = await import(`file://${join(work, `mut_${key}`, "engine.js")}`);
 // If the mutant tree had failed to copy, or the deletion line had not been
 // appended, every comparison below would find zero differences and the gate
 // would report METADATA CONTRACT OK -- a confident green produced by there
-// being nothing to compare. T10 hit the same class tonight from the other side
+// being nothing to compare. The same class turned up elsewhere from the other side
 // (an EMPTY named root reads PROCEED, a MISSING one must read REFUSED; a find
 // over a missing directory returns zero files and looks exactly like a clean
 // sandbox). So the preconditions are asserted before any delta is believed.

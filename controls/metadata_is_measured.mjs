@@ -2,7 +2,7 @@
 //
 // pattern_field_contract.json splits the source keys into `consulted` and
 // `metadata`, and its comment says metadata is "consulted by nothing" and the
-// compiler "MAY drop these". Round 2 shipped that sentence as an ASSERTION. It
+// compiler "MAY drop these". An earlier version shipped that sentence as an ASSERTION. It
 // was wrong about three of its four keys, and gate (c) was green for all of
 // them, because (c) grades what the contract says rather than what the engine
 // does. Measured here 2026-09-21 against the parity corpus:
@@ -114,7 +114,7 @@ const step = (stage, fn) => {
 // directory it threw past the handler and exited 1 -- the code reserved for a
 // measured nonzero delta, again.
 //
-// Round 4 taught "enumerate every route to each side of the distinction". The
+// A later review taught "enumerate every route to each side of the distinction". The
 // routes I enumerated were the ones I had written. This is the one I had not.
 let work;
 try {

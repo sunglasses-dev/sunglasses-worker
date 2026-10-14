@@ -3,8 +3,8 @@
 #
 # metadata_is_measured.mjs reports a key inert when deleting it changes nothing.
 # If the mutant tree were never actually mutated, it would change nothing for a
-# different reason and print exactly the same word. T10, 2026-09-21, on the same
-# class from the other side: an EMPTY named root reads PROCEED while a MISSING
+# different reason and print exactly the same word. The same
+# class turned up on 2026-09-21 from the other side: an EMPTY named root reads PROCEED while a MISSING
 # one must read REFUSED, because a find over a missing directory returns zero
 # files and looks exactly like a clean sandbox.
 #
