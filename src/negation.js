@@ -340,7 +340,7 @@ function upperBound(arr, x) {
 // when it is one of the named ones and the result is what the view holds, and
 // it is recorded. Any other difference ends the walk, and nothing past that
 // point is vouched for.
-class Walk {
+export class Walk {
   constructor(raw, low, view, record) {
     this.raw = raw;
     this.low = low;
@@ -389,11 +389,16 @@ class Walk {
   // that text decodes to alone, or its own unfinished escape may be completed
   // past the 64-character window. Ported from the scanner's check.
   //
-  // ONE PLACE IS CAUTIOUS ON PURPOSE. The scanner knows every HTML entity name
-  // and this port knows a subset, so whenever the text holds anything shaped
-  // like an entity the answer is "yes" without decoding it. Everything else
-  // (percent escapes, hex escapes, folds, invisible characters, a lone & or a
-  // tag character that starts nothing) is decided the way the scanner decides it.
+  // TWO PLACES ARE CAUTIOUS, AND BOTH ONLY EVER ANSWER YES WHERE THE SCANNER
+  // ANSWERS NO. (1) The scanner knows every HTML entity name and this port knows
+  // a subset, so whenever the text holds anything shaped like an entity the
+  // answer is "yes" without decoding it. (2) decodeUrlEncoding, inherited from
+  // the preprocessor, re-encodes a literal lone surrogate as U+FFFD when any
+  // valid percent escape is present, where Python's decoder keeps it, so a lone
+  // surrogate in the reading next to a percent escape reads as "decoded more".
+  // Everything else (percent escapes, hex escapes, folds, invisible characters,
+  // a lone & or a tag character that starts nothing) is decided the way the
+  // scanner decides it.
   layered(reading, end) {
     const stop = cpFwd(this.raw, end, 64);
     const window = this.raw.slice(end, stop);
