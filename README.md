@@ -82,7 +82,7 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   Python's `\w` does not, and 4,657 of those are Unicode version skew. The
   remaining one is U+0345, an already assigned combining character that
   case-insensitive matching folds into the class. Expressing the exclusion needs
-  the `v` flag's set subtraction, which 887 of 1,628 compiled entries do not
+  the `v` flag's set subtraction, which 889 of 1,634 compiled entries do not
   currently accept, so this is constrained and disclosed rather than repaired.
   This figure is derived from the compiled artefact by the recompile script, and this sentence is the only one the script checks.
 
