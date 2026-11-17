@@ -7,6 +7,7 @@ import { PATTERNS_VERSION, COMPILED_FROM } from "./patterns.js";
 import { LIMITATIONS } from "./preprocessor.js";
 import { parseGitHubUrl, fetchRawFile, readCapped, AGENT_SURFACES, GITHUB_CAPS } from "./github.js";
 import { rollupRepo, TIER_B_IDS, TIER_S_SIGNATURE_IDS } from "./policy.js";
+import { shownText, withShownText } from "./shown_text.js";
 
 const MAX_BYTES = 100_000; // Workers CPU guard
 // The request body is read under its own ceiling before it is parsed. This is a
@@ -216,6 +217,7 @@ async function route(request, env) {
       const result = scan(text, channel);
       return json({
         ...result,
+        findings: withShownText(result.findings, text),
         ...(result.decision !== "allow" ? { verdict_meaning: VERDICT_MEANING } : {}),
         engine: "sunglasses-worker demo",
         patterns_version: PATTERNS_VERSION,
@@ -252,6 +254,7 @@ async function route(request, env) {
             // language and never appears under a green banner (AZ, Jul-17).
             findings: result.findings.map((finding) => ({
               ...finding,
+              shown_text: shownText(fetched.text, finding.matched_text || ""),
               tier: TIER_S_SIGNATURE_IDS.has(finding.id) ? "S"
                 : TIER_B_IDS.has(finding.id) ? "B" : "A",
             })),
@@ -456,7 +459,7 @@ go.onclick = async () => {
     const timing = d.latency_ms ? ' · ' + esc(d.latency_ms) + 'ms' : '';
     out.innerHTML = '<div class="verdict ' + cls + '"><span>' + label + '</span><span>' + d.findings.length + ' finding' + (d.findings.length===1?'':'s') + timing + '</span></div>' +
       (d.verdict_meaning ? '<div class="vnote"><b>What this means:</b> ' + esc(d.verdict_meaning) + '</div>' : '') +
-      d.findings.slice(0, 25).map(f => '<div class="f"><div class="meta">' + esc(f.id) + ' · ' + esc(f.category) + ' · ' + esc(f.severity) + '</div><b>' + esc(f.name) + '</b><p>' + esc(f.description || '') + '</p><div class="m">matched: ' + esc(f.matched_text || '') + '</div></div>').join('') +
+      d.findings.slice(0, 25).map(f => '<div class="f"><div class="meta">' + esc(f.id) + ' · ' + esc(f.category) + ' · ' + esc(f.severity) + '</div><b>' + esc(f.name) + '</b><p>' + esc(f.description || '') + '</p><div class="m">matched: ' + esc(f.shown_text || f.matched_text || '') + '</div></div>').join('') +
       (d.findings.length > 25 ? '<div class="f"><p>+' + (d.findings.length - 25) + ' more findings</p></div>' : '');
   } catch (e) { out.innerHTML = '<div class="verdict v-quarantine">Request failed: ' + esc(String(e)) + '</div>'; }
   finally { go.disabled = false; stat.textContent = ''; }
