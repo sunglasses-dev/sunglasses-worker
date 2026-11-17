@@ -172,6 +172,20 @@ export function decodeHtmlEntities(text) {
 // front of valid encoded text, so everything after it stayed hidden from the
 // scanner while Python read it as U+FFFD followed by the real words. A decoder
 // that gives up on a run is a decoder an attacker can switch off with one byte.
+// A numeric character reference that spells an ASCII letter or digit. Markup escapes (&lt; &#60; &#39;)
+// are left alone on purpose: decoding them would turn every escaped code sample in a web page into live
+// markup. Port of preprocessor.py decode_letter_references.
+const LETTER_REFERENCE = /&#(?:[xX]0*([0-9A-Fa-f]{1,6})|0*([0-9]{1,7}));?/g;
+
+export function decodeLetterReferences(text) {
+  if (!text.includes("&#")) return text;
+  return text.replace(LETTER_REFERENCE, (whole, hex, dec) => {
+    const value = hex !== undefined ? parseInt(hex, 16) : parseInt(dec, 10);
+    if (value < 128 && /[0-9A-Za-z]/.test(String.fromCharCode(value))) return String.fromCharCode(value);
+    return whole;
+  });
+}
+
 export function decodeUrlEncoding(text) {
   if (!text.includes("%")) return text;
   if (!/%[0-9A-Fa-f]{2}/.test(text)) return text;
