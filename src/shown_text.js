@@ -1,4 +1,4 @@
-// The words of the page for a finding (C1658). Port of the pip scanner's sunglasses/shown_text.py; the rows in
+// The words of the page for a finding. Port of the pip scanner's sunglasses/shown_text.py; the rows in
 // tests/fixtures/shown_text_rows.json are the contract between the two.
 //
 // The engine matches on a folded copy of the input (lowercase, look-alike letters and leet digits mapped, blanks
@@ -7,9 +7,7 @@
 // `folded`, widens it to whole words, joins its blanks and cuts a long one at a space. It reads the first READ_CAP
 // characters of the input. matched_text is never changed; the report gets an added shown_text.
 //
-// Known differences from the pip side, none on a row of the fixture: hidden control characters are not in this
-// runtime's invisible set (see preprocessor.js), letters above U+FFFF count as two units here, and a few characters
-// are blank to one runtime and not the other.
+// The two runtimes differ on a few characters; the rows in the fixture are the contract.
 import { HOMOGLYPHS, INVISIBLE_CHARS, LEET } from "./preprocessor.js";
 
 export const NO_SINGLE_PHRASE = "no single phrase: this rule reads the whole text";
