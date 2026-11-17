@@ -573,6 +573,9 @@ const words = (s) => s.split(/\s+/).filter(Boolean);
 // single spaces, within NEGATION_GAP_WORDS, with no clause word and no leading
 // verb of omission. A run of up to BLANK_RUN spaces between two words of the
 // gap counts as one space.
+// The characters a lead-in match can open on that end a sentence or open a clause (pip _LEADIN_BREAKS).
+const LEADIN_BREAKS = new Set(".!?;:\n([{".split(""));
+
 function negationGoverns(gap) {
   gap = gap.replace(GAP_SPACES_RX, " ");
   if (!GAP_FULL_RX.test(gap)) return false;
@@ -655,7 +658,10 @@ export function checkNegation(text, matchStart, align, matchEnd) {
     if (m.index === 0 && windowStart > 0 && isAlnum(cpBefore(text, windowStart))) continue;
     const end = m.index + m[0].length;
     const gap = beforeText.slice(end);
-    if (!(negationGoverns(gap) || quotedGapHolds(gap, text, matchStart, matchEnd, align))) continue;
+    // A rule whose lead-in consumed the sentence break starts its match ON the break, so the text read
+    // between the cue and the match ends before it. The break is part of what lies between the cue and the payload and ends the clause.
+    const leadin = LEADIN_BREAKS.has(text[matchStart]) ? text[matchStart] : "";
+    if (!(negationGoverns(gap + leadin) || quotedGapHolds(gap, text, matchStart, matchEnd, align))) continue;
     if (!align || align.holds(
       text, cpBack(text, windowStart + m.index, 1), hitEnd,
       spacedInside(text, windowStart + end, matchStart))) {
