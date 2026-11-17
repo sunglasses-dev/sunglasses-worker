@@ -44,18 +44,55 @@ function charClass(c) {
   return got;
 }
 
+let EXPANDED = null;
+
+// Folded words that one input character becomes (an ellipsis becomes three dots, a ligature two letters).
+function expanded() {
+  if (EXPANDED === null) {
+    EXPANDED = new Map();
+    for (let cp = 0xa0; cp < 0x10000; cp++) {
+      if (cp >= 0xd800 && cp < 0xe000) continue;
+      const c = String.fromCharCode(cp);
+      const e = c.normalize("NFKC").toLowerCase();
+      if (e.length > 1 && e.length <= 4 && !/^\s+$/u.test(e)) {
+        if (!EXPANDED.has(e)) EXPANDED.set(e, []);
+        EXPANDED.get(e).push(c);
+      }
+    }
+  }
+  return EXPANDED;
+}
+
 function patternFor(folded) {
+  const chars = [...folded];
   const parts = [];
+  const table = expanded();
   let lastBlank = true;
-  for (const c of folded) {
+  let i = 0;
+  while (i < chars.length) {
+    const c = chars[i];
     if (isBlank(c)) {
       if (!lastBlank) parts.push("(?:\\s|" + HIDDEN + ")+");
       lastBlank = true;
-    } else {
-      if (parts.length && !lastBlank) parts.push("(?:" + HIDDEN + ")*");
-      parts.push(charClass(c));
-      lastBlank = false;
+      i += 1;
+      continue;
     }
+    if (parts.length && !lastBlank) parts.push("(?:" + HIDDEN + ")*");
+    let step = 1;
+    for (const size of [4, 3, 2]) {
+      if (i + size > chars.length) continue;
+      const word = chars.slice(i, i + size).join("");
+      const raws = table.get(word);
+      if (raws) {
+        parts.push("(?:" + [...raws].sort().map(esc).join("|") + "|" +
+          chars.slice(i, i + size).map(charClass).join("(?:" + HIDDEN + ")*") + ")");
+        step = size;
+        break;
+      }
+    }
+    if (step === 1) parts.push(charClass(c));
+    lastBlank = false;
+    i += step;
   }
   while (parts.length && parts[parts.length - 1].startsWith("(?:\\s|")) parts.pop();
   return parts.join("");
