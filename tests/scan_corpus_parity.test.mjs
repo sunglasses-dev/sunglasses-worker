@@ -1,7 +1,7 @@
 // Replay of recorded scans: the Worker must reach the scanner's decision and
 // finding ids on the same text.
 //
-// Two fixtures. scan_corpus_068.json holds every distinct (text, channel) the
+// Three fixtures. scan_corpus_068.json holds every distinct (text, channel) the
 // scanner's own tests for the folded view, the negation rules and the framing
 // rules scan with the stock rules, with the decision and the sorted finding ids
 // the scanner returned for each. scan_corpus_negation_fuzz.json holds texts built
@@ -9,6 +9,8 @@
 // to either that must not let the cue govern (invisible characters, look-alike
 // letters, full-width letters, entities, percent and hex escapes, doubled spaces,
 // tabs, long gaps, shadow characters, a base64 blob in front).
+// scan_corpus_fold_code_points.json holds one text for each character the scanner folds before it
+// reads, with the answer the scanner gives; the Worker folds the same characters.
 //
 // A row marked `residual` is one the Worker stops where the scanner downgrades:
 // the text decodes something (an entity or a percent escape) ahead of the cue, and
@@ -27,7 +29,7 @@ const enginePath = process.env.SG_WORKER_ENGINE || path.resolve(here, "../src/en
 const { scan } = await import(pathToFileURL(enginePath).href);
 
 const STRICTNESS = { allow: 0, allow_redacted: 1, quarantine: 2, block: 3 };
-const MAX_RESIDUAL = { "scan_corpus_068.json": 1, "scan_corpus_negation_fuzz.json": 16 };
+const MAX_RESIDUAL = { "scan_corpus_068.json": 1, "scan_corpus_negation_fuzz.json": 16, "scan_corpus_fold_code_points.json": 0 };
 
 for (const file of Object.keys(MAX_RESIDUAL)) {
   const { rows } = JSON.parse(fs.readFileSync(path.join(here, "fixtures", file), "utf8"));
