@@ -6,7 +6,7 @@ import { PATTERNS } from "./patterns.js";
 import {
   CONTROL_CHARS, codePointLength, decodeShadowAscii, normalizeUnicode, normalizeWithLength, replaceHomoglyphs, replaceLookalikes,
   decodeLetterReferences, keywordViewBetweenWords, spaceIgnorableBetweenWords, stripIgnorable, stripInvisible,
-  VIEW_SEP,
+  VIEW_SEP, withPythonDigits,
 } from "./preprocessor.js";
 import {
   RawAlign, checkNegation, cpAt, cpBack, cpBefore, cpFwd, enrichmentSpans, isDefensivelyFramed, isPySpace,
@@ -364,8 +364,8 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
         const sticky = r.mode !== "plain" && r.mode !== "anchored" && r.mode !== "leadin";
         const entry = {
           mode: r.mode,
-          rx: new RegExp(r.source, r.flags + (sticky ? "y" : "")),
-          guards: (r.guards || []).map((g) => new RegExp(g.source, g.flags + "y")),
+          rx: new RegExp(withPythonDigits(r.source), r.flags + (sticky ? "y" : "")),
+          guards: (r.guards || []).map((g) => new RegExp(withPythonDigits(g.source), g.flags + "y")),
           // CARRIED THROUGH. The compiler derives this and the index dropped it,
           // so every entry arrived with no requirement and the prefilter skipped
           // nothing at all. Silent, because a prefilter that never fires is
@@ -377,16 +377,16 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
           // calls: a bounded `search` and, on a candidate, an anchored `match`
           // against the whole document. `g` gives the first a movable start,
           // `y` gives the second Python's `.match(text, pos)` exactly.
-          entry.rxGlobal = new RegExp(r.source, r.flags + "g");
-          entry.rxSticky = new RegExp(r.source, r.flags + "y");
+          entry.rxGlobal = new RegExp(withPythonDigits(r.source), r.flags + "g");
+          entry.rxSticky = new RegExp(withPythonDigits(r.source), r.flags + "y");
           entry.anchors = r.anchors || [];
           entry.span = Math.max(r.span || 1, 1);
         }
         if (r.mode === "leadin") {
           // The rule's own regex, sticky, for the recovered start (Python's
           // `.match(text, pos)`); the twin, global, to find a candidate.
-          entry.rxSticky = new RegExp(r.source, r.flags + "y");
-          entry.rxTwin = new RegExp(r.twin, r.twin_flags + "g");
+          entry.rxSticky = new RegExp(withPythonDigits(r.source), r.flags + "y");
+          entry.rxTwin = new RegExp(withPythonDigits(r.twin), r.twin_flags + "g");
           LEADIN_ENTRIES.push({ id: p.id, entry });
         }
         compiled.push(entry);
