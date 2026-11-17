@@ -54,6 +54,14 @@ export const LEET = {
   "7": "t", "@": "a", "$": "s", "!": "i",
 };
 
+// Control characters that are neither whitespace nor escape: they are deleted before the keyword
+// lane reads the text. Tab, newline, carriage return, vertical tab, form feed, the four separators
+// and next line stay because a regex reads them as spaces, and escape stays because a rule matches
+// it raw. Port of preprocessor.py CONTROL_RANGES.
+export const CONTROL_RANGES = "\u0000-\u0008\u000e-\u001a\u007f-\u0084\u0086-\u009f";
+export const CONTROL_CHARS = new RegExp("[" + CONTROL_RANGES + "]", "u");
+const CONTROL_RUN = new RegExp("[" + CONTROL_RANGES + "]+", "gu");
+
 export const INVISIBLE_CHARS = new RegExp(
   "[\u200b\u200c\u200d\u200e\u200f" +  // zero-width spaces/joiners
   "\u2060\u2061\u2062\u2063\u2064" +   // word joiner, invisible operators
@@ -62,7 +70,8 @@ export const INVISIBLE_CHARS = new RegExp(
   "\u034f" +                               // combining grapheme joiner
   "\u061c" +                               // Arabic letter mark
   "\u2028\u2029" +                        // line/paragraph separators
-  "\u{e0001}-\u{e007f}]",                 // Unicode tag characters
+  "\u{e0001}-\u{e007f}" +                 // Unicode tag characters
+  CONTROL_RANGES + "]",
   "gu",
 );
 
@@ -104,6 +113,17 @@ export function decodeLeetspeak(text) {
 const PY_WS = "[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028-\u2029\u202f\u205f\u3000]";
 const PY_WS_RUN = new RegExp("(" + PY_WS + "{2,})");
 const PY_WS_ONLY = new RegExp("^" + PY_WS + "+$");
+
+// The text with each run of control characters read as one space, except where the run already
+// stands next to blank space or at an edge of the text. Port of preprocessor.py controls_as_spaces.
+const PY_WS_CHAR = new RegExp("^" + PY_WS + "$");
+export function controlsAsSpaces(text) {
+  return text.replace(CONTROL_RUN, (run, a) => {
+    const b = a + run.length;
+    if (a === 0 || b === text.length || PY_WS_CHAR.test(text.charAt(a - 1)) || PY_WS_CHAR.test(text.charAt(b))) return "";
+    return " ";
+  });
+}
 
 export function collapseWhitespace(text) {
   return text.replace(/[\t\r\x0b\x0c]+/g, " ").replace(/ {2,}/g, " ").trim();
@@ -368,6 +388,12 @@ export function normalizeWithLength(text, record) {
   // them (a split phrase keeps matching) and the shadow view sees the text.
   // Mirrors preprocessor.py normalize().
   const shadow = decodeShadowAscii(text);
+  // Control characters are deleted below, so a phrase they stand inside reads as written. The same text with each
+  // control read as a space is kept as a view of its own, behind the separator, and decoded on its
+  // original boundaries (port of preprocessor.py).
+  let spaced = CONTROL_CHARS.test(text) ? controlsAsSpaces(text) : null;
+  // Every control stands next to blank space: the view would repeat the plain one.
+  if (spaced !== null && spaced === text.replace(CONTROL_RUN, "")) spaced = null;
   text = stripInvisible(text);
   text = normalizeUnicode(text);
   text = replaceHomoglyphs(text);
@@ -402,6 +428,7 @@ export function normalizeWithLength(text, record) {
     if (rot !== text) text = text + " " + VIEW_SEP + " " + rot;
     text = text.toLowerCase();
   }
+  if (spaced !== null) text = text + " " + VIEW_SEP + " " + normalize(spaced);
   if (shadow !== null) {
     // Its own views, behind the separator, so an excerpt never joins it to the
     // plain text.
@@ -421,4 +448,73 @@ const SHADOW_ASCII_ALL = /[\u{E0020}-\u{E007E}]/gu;
 export function decodeShadowAscii(text) {
   if (!SHADOW_ASCII.test(text)) return null;
   return text.replace(SHADOW_ASCII_ALL, (c) => String.fromCodePoint(c.codePointAt(0) - 0xE0000));
+}
+
+// ── The regex lane's widened folded view ─────────────────────────────────────────────
+// Every code point that renders as nothing, written out as ranges so the set is the same on
+// every runtime. It is the Unicode Default_Ignorable_Code_Point property, plus the format
+// characters that renderers do not draw either, plus INVISIBLE_CHARS above. Port of
+// preprocessor.py IGNORABLE_RANGES.
+export const IGNORABLE_RANGES = [
+  [0x0000, 0x0008], [0x000E, 0x001A], [0x007F, 0x0084], [0x0086, 0x009F], [0x00AD, 0x00AD],
+  [0x034F, 0x034F], [0x061C, 0x061C], [0x115F, 0x1160], [0x17B4, 0x17B5], [0x180B, 0x180F],
+  [0x200B, 0x200F], [0x2028, 0x2029], [0x202A, 0x202E], [0x2060, 0x206F], [0x3164, 0x3164],
+  [0xFE00, 0xFE0F], [0xFEFF, 0xFEFF], [0xFFA0, 0xFFA0], [0xFFF0, 0xFFFB], [0x13430, 0x1343F],
+  [0x1BCA0, 0x1BCA3], [0x1D173, 0x1D17A], [0xE0000, 0xE0FFF],
+];
+const hex = (c) => "\\u{" + c.toString(16) + "}";
+const IGNORABLE_CLASS = IGNORABLE_RANGES.map(([lo, hi]) => (lo === hi ? hex(lo) : hex(lo) + "-" + hex(hi))).join("");
+const IGNORABLE_CHARS = new RegExp("[" + IGNORABLE_CLASS + "]+", "gu");
+const IGNORABLE_BETWEEN_BRAILLE = new RegExp("(?<=[\\u2800-\\u28ff])[" + IGNORABLE_CLASS + "]+(?=[\\u2800-\\u28ff])", "gu");
+
+// Punctuation that looks like an ASCII sign and that NFKC does not map, and the characters drawn as
+// a blank that a literal space does not match. Each entry is one code point to one code point.
+// Port of preprocessor.py PUNCT_LOOKALIKES and BLANKS.
+const PUNCT_LOOKALIKES = {
+  "‐": "-", "‑": "-", "‒": "-", "⁃": "-", "−": "-", "˗": "-",
+  "¦": "|", "❘": "|", "∣": "|", "ǀ": "|", "⏐": "|",
+  "∕": "/", "⁄": "/", "⧸": "/",
+  "꞉": ":", "˸": ":", "∶": ":",
+};
+const BLANKS = { "⠀": " ", "\u0085": " ", " ": " " };
+const LOOKALIKES = { ...HOMOGLYPHS, ...PUNCT_LOOKALIKES, ...BLANKS };
+
+// A letter is ASCII or one the homoglyph table maps to ASCII.
+const WORD_CHAR_CLASS = "A-Za-z0-9" + Object.keys(HOMOGLYPHS).map((c) => hex(c.codePointAt(0))).join("");
+const IGNORABLE_BETWEEN_WORDS = new RegExp("(?<=[" + WORD_CHAR_CLASS + "])[" + IGNORABLE_CLASS + "]+(?=[" + WORD_CHAR_CLASS + "])", "gu");
+
+// Delete every code point that renders as nothing, except that a run of them between two Braille
+// cells is read as one space.
+export function stripIgnorable(text) {
+  return text.replace(IGNORABLE_BETWEEN_BRAILLE, " ").replace(IGNORABLE_CHARS, "");
+}
+
+// The text with each ignorable run that sits between two letters or digits read as one space.
+// null when there is no such run.
+export function spaceIgnorableBetweenWords(text) {
+  let count = 0;
+  const spaced = text.replace(IGNORABLE_BETWEEN_WORDS, () => { count++; return " "; });
+  return count > 0 ? spaced : null;
+}
+
+// Homoglyph letters, punctuation look-alikes and blanks to their ASCII character; one code point to
+// one code point.
+export function replaceLookalikes(text) {
+  let out = "";
+  for (const c of text) out += LOOKALIKES[c] ?? c;
+  return out;
+}
+
+// The ignorable-run reading for the keyword lane, whose cover checks read where a line ends: a run
+// that holds one of `lineBreaks` is read as the line break it is drawn as, any other run as one space.
+// null when there is no run between two letters or digits. Port of preprocessor.py keyword_view_between_words.
+export function keywordViewBetweenWords(text, lineBreaks) {
+  const breaks = new Set(lineBreaks);
+  let count = 0;
+  const view = text.replace(IGNORABLE_BETWEEN_WORDS, (run) => {
+    count++;
+    for (const c of run) if (breaks.has(c)) return "\n";
+    return " ";
+  });
+  return count > 0 ? view : null;
 }

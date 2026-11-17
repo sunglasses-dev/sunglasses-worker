@@ -4,7 +4,8 @@
 import { MECHANISMS } from "./mechanisms.js";
 import { PATTERNS } from "./patterns.js";
 import {
-  codePointLength, decodeShadowAscii, normalizeUnicode, normalizeWithLength, replaceHomoglyphs, stripInvisible,
+  CONTROL_CHARS, codePointLength, decodeShadowAscii, normalizeUnicode, normalizeWithLength, replaceHomoglyphs, replaceLookalikes,
+  keywordViewBetweenWords, spaceIgnorableBetweenWords, stripIgnorable, stripInvisible,
   VIEW_SEP,
 } from "./preprocessor.js";
 import {
@@ -624,6 +625,36 @@ function regexCovered(pattern, entry, subject, match, align, limit, tail, spans,
   return how;
 }
 
+// The characters a line break is drawn with. Port of engine.py _LINE_BREAK_CHARS.
+const LINE_BREAK_CHARS = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029";
+
+// The parts of a normalized text that the later-hit and corroboration reads use: where the plain view
+// ends, the shadow reading appended behind it, the copies behind the plain view, and the regions
+// read for a later hit.
+function viewParts(norm, foldedLen, shadowText) {
+  const plainEnd = viewEnd(norm, 0);
+  let tail = null;
+  let tailStart = norm.length;
+  if (shadowText !== null) {
+    const [tailText, tailFolded] = normalizeWithLength(shadowText);
+    if (norm.endsWith(tailText)) {
+      tailStart = norm.length - tailText.length;
+      const tailPlain = viewEnd(tailText, 0);
+      tail = { text: tailText, plain: tailPlain, spans: enrichmentSpans(tailText, tailPlain, tailText.length, tailFolded) };
+    }
+  }
+  const mainStop = tail !== null && norm.startsWith(SEP, tailStart - SEP.length) ? tailStart - SEP.length : tailStart;
+  const spans = enrichmentSpans(norm, plainEnd, mainStop, foldedLen);
+  const plainBase = [0, plainEnd];
+  const regions = [[norm, 0, 0, plainEnd, null]];
+  for (const [lo, hi, kept] of spans) regions.push([norm, 0, lo, hi, kept ? plainBase : []]);
+  if (tail !== null) {
+    regions.push([tail.text, tailStart, 0, tail.plain, null]);
+    for (const [lo, hi, kept] of tail.spans) regions.push([tail.text, tailStart, lo, hi, kept ? [0, tail.plain] : []]);
+  }
+  return { plainEnd, tail, spans, regions };
+}
+
 // The keyword path: true when another hit of `keyword` in a region that is read,
 // other than the hit `skip` that was already judged, is not under a negation, or
 // when the rule has used up its cap of later hits. `regions` are [view, offset of
@@ -737,7 +768,7 @@ export function scan(text, channel = "message") {
   // payload hidden with invisible characters past the cut.
   let folded = null;
   let compact = null;
-  if (/[^\x00-\x7f]/.test(text)) {
+  if (/[^\x00-\x7f]/.test(text) || CONTROL_CHARS.test(text)) {
     const stripped = stripInvisible(text);
     folded = replaceHomoglyphs(normalizeUnicode(stripped));
     if (folded.length > MAX_FOLDED_VIEW && codePointLength(folded) > MAX_FOLDED_VIEW) {
@@ -746,6 +777,41 @@ export function scan(text, channel = "message") {
       folded = folded.slice(0, cpFwd(folded, 0, MAX_FOLDED_VIEW));
     }
     if (folded === text) folded = null;
+  }
+  // The shadow reading with its controls deleted, read as a subject of its own. Built only when the
+  // shadow reading holds a control.
+  let shadowFolded = null;
+  if (shadow !== null && CONTROL_CHARS.test(shadow)) {
+    shadowFolded = replaceHomoglyphs(normalizeUnicode(stripInvisible(decodeShadowAscii(text) ?? text)));
+    if (shadowFolded.length > MAX_FOLDED_VIEW && codePointLength(shadowFolded) > MAX_FOLDED_VIEW) {
+      shadowFolded = shadowFolded.slice(0, cpFwd(shadowFolded, 0, MAX_FOLDED_VIEW));
+    }
+    if (shadowFolded === shadow) shadowFolded = null;
+  }
+  // The widened readings, after the fold above and as subjects of their own: every code point that
+  // renders as nothing deleted, NFKC, look-alike letters and punctuation mapped, a blank-drawn
+  // character read as a space. Where an invisible run stands between two letters or digits the fold
+  // is built once more with that run read as a space. A reading equal to the raw text or to an
+  // earlier subject is read once.
+  const wide = [];
+  let keywordView = null;
+  if (/[^\x00-\x7f]/.test(text) || CONTROL_CHARS.test(text)) {
+    const spaced = spaceIgnorableBetweenWords(text);
+    if (spaced !== null) keywordView = keywordViewBetweenWords(text, LINE_BREAK_CHARS);
+    const readings = [stripIgnorable(text)];
+    if (spaced !== null) readings.push(stripIgnorable(spaced));
+    for (const stripped of readings) {
+      let wideFolded = replaceLookalikes(normalizeUnicode(stripped));
+      let wideCompact = null;
+      if (wideFolded.length > MAX_FOLDED_VIEW && codePointLength(wideFolded) > MAX_FOLDED_VIEW) {
+        wideCompact = replaceLookalikes(stripped);
+        wideFolded = wideFolded.slice(0, cpFwd(wideFolded, 0, MAX_FOLDED_VIEW));
+      }
+      for (const view of [wideFolded, wideCompact]) {
+        if (view === null || view === text || view === folded || view === compact || wide.includes(view)) continue;
+        wide.push(view);
+      }
+    }
   }
   const findings = [];
   const seen = new Set();
@@ -763,49 +829,67 @@ export function scan(text, channel = "message") {
   // the pattern's own regex must confirm (lane 2 on raw, lane 2.5 on
   // normalized). Keyword-only patterns keep keyword-verdict behavior.
   const candidates = new Map();
-  for (const [keyword, patterns] of keywordToPatterns) {
-    // v0.4.3 word boundary: take the first occurrence whose TRAILING edge is a
-    // real word end. Python's Aho-Corasick path (the reference the parity gates
-    // run against) yields every occurrence and skips the unbounded ones, so a
-    // keyword buried in a longer word earlier in the text must not shadow a
-    // genuine hit later — plain indexOf on occurrence #1 would do exactly that.
-    let idx = -1;
-    for (let at = normalized.indexOf(keyword); at !== -1; at = normalized.indexOf(keyword, at + 1)) {
-      if (wordBounded(normalized, at, keyword)) { idx = at; break; }
-    }
-    if (idx === -1) continue;
-    for (const pattern of patterns) {
-      if (!channelHit(pattern)) continue;
-      const pid = pattern.id;
-      if (seen.has(pid) || candidates.has(pid)) {
-        const heldFinding = downgraded.get(pid);
-        if (heldFinding !== undefined
-            && laterKeywordLive(regions, keyword, firstHit.get(pid), align, laterSpent, pid)) {
-          // Any later hit of the rule that no negation covers puts the severity back.
-          restore(heldFinding);
-          downgraded.delete(pid);
+  const keywordPass = (view, viewAlign, viewRegions, viewCandidates, second) => {
+    for (const [keyword, patterns] of keywordToPatterns) {
+      // v0.4.3 word boundary: take the first occurrence whose TRAILING edge is a
+      // real word end. Python's Aho-Corasick path (the reference the parity gates
+      // run against) yields every occurrence and skips the unbounded ones, so a
+      // keyword buried in a longer word earlier in the text must not shadow a
+      // genuine hit later — plain indexOf on occurrence #1 would do exactly that.
+      let idx = -1;
+      for (let at = view.indexOf(keyword); at !== -1; at = view.indexOf(keyword, at + 1)) {
+        if (wordBounded(view, at, keyword)) { idx = at; break; }
+      }
+      if (idx === -1) continue;
+      for (const pattern of patterns) {
+        if (!channelHit(pattern)) continue;
+        const pid = pattern.id;
+        if (seen.has(pid) || viewCandidates.has(pid)) {
+          const heldFinding = downgraded.get(pid);
+          // The second view is another text: no hit of it is the first hit that was judged.
+          if (heldFinding !== undefined
+              && laterKeywordLive(viewRegions, keyword, second ? ["", -1] : firstHit.get(pid), viewAlign, laterSpent, pid)) {
+            // Any later hit of the rule that no negation covers puts the severity back.
+            restore(heldFinding);
+            downgraded.delete(pid);
+          }
+          continue;
         }
-        continue;
-      }
-      if (regexBearingIds.has(pid)) {
-        candidates.set(pid, pattern);
-        continue;
-      }
-      seen.add(pid);
-      const matched = excerpt(normalized, idx, idx + keyword.length);
-      const negated = !pattern.negation_immune
-        && checkNegation(normalized, idx, align, idx + keyword.length);
-      const finding = makeFinding(pattern, matched, negated);
-      if (negated) {
-        downgraded.set(pid, finding);
-        firstHit.set(pid, [keyword, idx]);
-        if (laterKeywordLive(regions, keyword, [keyword, idx], align, laterSpent, pid)) {
-          restore(finding);
-          downgraded.delete(pid);
+        if (regexBearingIds.has(pid)) {
+          viewCandidates.set(pid, pattern);
+          continue;
         }
+        seen.add(pid);
+        const matched = excerpt(view, idx, idx + keyword.length);
+        const negated = !pattern.negation_immune
+          && checkNegation(view, idx, viewAlign, idx + keyword.length);
+        const finding = makeFinding(pattern, matched, negated);
+        if (negated) {
+          downgraded.set(pid, finding);
+          firstHit.set(pid, [keyword, idx]);
+          if (laterKeywordLive(viewRegions, keyword, [keyword, idx], viewAlign, laterSpent, pid)) {
+            restore(finding);
+            downgraded.delete(pid);
+          }
+        }
+        findings.push(finding);
       }
-      findings.push(finding);
     }
+  };
+  keywordPass(normalized, align, regions, candidates, false);
+  // The keyword lane reads a second view of the text: each ignorable run between two letters or digits
+  // written as a space (as a line break where the run holds a line or paragraph separator), the reading
+  // the regex lane has. It reads for rules no earlier view found. A rule that also carries a regex becomes
+  // a candidate of this view and is corroborated on this view's own normalized text.
+  const spacedCandidates = new Map();
+  let spacedView = null;
+  if (keywordView !== null) {
+    const spacedRecord = [];
+    const [spacedNormalized, spacedLength] = normalizeWithLength(keywordView, spacedRecord);
+    const spacedAlign = new RawAlign(keywordView, spacedRecord);
+    const parts = viewParts(spacedNormalized, spacedLength, decodeShadowAscii(keywordView));
+    spacedView = { normalized: spacedNormalized, length: spacedLength, align: spacedAlign, ...parts };
+    keywordPass(spacedNormalized, spacedAlign, parts.regions, spacedCandidates, true);
   }
 
   // Lane 2: regexes on RAW text, then on the other views for a pattern that asks
@@ -828,8 +912,10 @@ export function scan(text, channel = "message") {
     // check against itself and the normalized one carries the other views.
     const subjects = [[text, "raw"]];
     if (shadow !== null) subjects.push([shadow, "shadow"]);
+    if (shadowFolded !== null) subjects.push([shadowFolded, "folded"]);
     if (folded !== null) subjects.push([folded, "folded"]);
     if (compact !== null) subjects.push([compact, "compact"]);
+    for (const view of wide) subjects.push([view, "wide"]);
     if (pattern.match_on === "normalized") subjects.push([normalized, "normalized"]);
     let heldHit = null;
     let decided = false;
@@ -852,7 +938,7 @@ export function scan(text, channel = "message") {
         // results). Do NOT "fix" by adding the window offset; parity depends on
         // mirroring engine.py exactly.
         const cover = regexCovered(
-          pattern, entry, subject, m, kind === "raw" ? null : align,
+          pattern, entry, subject, m, kind === "raw" || kind === "wide" ? null : align,
           isNormalized ? viewEnd(normalized, m.index) : null,
           isNormalized ? tail : null, isNormalized ? spans : null, laterSpent, framed);
         if (cover !== null) {
@@ -885,17 +971,27 @@ export function scan(text, channel = "message") {
   // fires on neither view is a keyword-only echo and is dropped. A finding that
   // step 3 downgraded is read again here: the normalized view holds hits the raw
   // text does not, and one that nothing covers gives the rule its plain severity.
-  if (foldedLength <= CORROBORATE_NORM_MAX) {
-    for (const [pid, pattern] of candidates) {
+  // A rule whose keyword stands only in the spaced reading is corroborated on that reading's own
+  // normalized view. One rule, one verdict: the first view that finds it uncovered closes it.
+  const corroborationViews = [[candidates, normalized, foldedLength, align, tail, spans]];
+  if (spacedView !== null && spacedCandidates.size > 0) {
+    corroborationViews.push([spacedCandidates, spacedView.normalized, spacedView.length, spacedView.align,
+      spacedView.tail, spacedView.spans]);
+  }
+  const decidedLive = new Set();
+  for (const [viewCandidates, viewNorm, viewLength, viewAlign, viewTail, viewSpans] of corroborationViews) {
+    if (viewLength > CORROBORATE_NORM_MAX) continue;
+    for (const [pid, pattern] of viewCandidates) {
+      if (decidedLive.has(pid)) continue;
       const heldFinding = heldRegex.get(pid);
       if (seen.has(pid) && heldFinding === undefined) continue;
       const framed = pid.startsWith("GLS-MECH-");
       let pending = null;
       for (const entry of compiledById.get(pid) || []) {
-        const m = evalRegex(entry, normalized);
+        const m = evalRegex(entry, viewNorm);
         if (!m) continue;
         const cover = regexCovered(
-          pattern, entry, normalized, m, align, viewEnd(normalized, m.index), tail, spans,
+          pattern, entry, viewNorm, m, viewAlign, viewEnd(viewNorm, m.index), viewTail, viewSpans,
           laterSpent, framed);
         if (cover !== null) {
           if (heldFinding === undefined && pending === null) {
@@ -911,6 +1007,7 @@ export function scan(text, channel = "message") {
           findings.push(makeFinding(pattern, cpHead(m[0], 50), false));
           pending = null;
         }
+        decidedLive.add(pid);
         break;
       }
       if (pending !== null) {
