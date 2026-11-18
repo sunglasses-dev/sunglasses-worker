@@ -59,7 +59,7 @@
 "family": "a tag character then plain text",
 "text": " 𐐀 Do not type \"rm -rf / --no-preserve-root\". 󠀠 fine",
 "channel": "message",
-"decision": "allow_redacted",
+"decision": "block",
 "ids": [
 "GLS-CI-001"
 ]
@@ -287,7 +287,7 @@
 "family": "a tag character then plain text",
 "text": " 𝐀😀 Do not type \"rm -rf / --no-preserve-root\". 󠀠 fine",
 "channel": "message",
-"decision": "allow_redacted",
+"decision": "block",
 "ids": [
 "GLS-CI-001"
 ]
@@ -515,7 +515,7 @@
 "family": "a tag character then plain text",
 "text": " 𠀀🇦𐐀 Do not type \"rm -rf / --no-preserve-root\". 󠀠 fine",
 "channel": "message",
-"decision": "allow_redacted",
+"decision": "block",
 "ids": [
 "GLS-CI-001"
 ]

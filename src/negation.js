@@ -770,6 +770,24 @@ export function enrichmentSpans(text, plainEnd, stop, foldedLength) {
   return spans.map(([lo, hi], k) => [lo, hi, kept[k]]);
 }
 
+// The spans of a normalized text that hold everything before a view separator written backwards
+// (pip RawAlign.moved). The scanner takes a hit in such a span for a hit in a reversed view and never
+// lowers it. A shadow tail that reads exactly as the text before it is such a span too: the views
+// before the tail read the same backwards as forwards, so the tail is "the text written backwards".
+export function reversedSpans(text) {
+  const spans = [];
+  let at = text.indexOf(SEP);
+  while (at !== -1) {
+    const lo = at + SEP.length;
+    if (lo + at <= text.length) {
+      const back = Array.from(text.slice(0, at)).reverse().join("");
+      if (text.slice(lo, lo + at) === back) spans.push([lo, lo + at]);
+    }
+    at = text.indexOf(SEP, at + 1);
+  }
+  return spans;
+}
+
 // For each of the `count` views behind the plain one: true when it keeps the
 // position of every character of the plain view (ROT13, and the l-for-I variant
 // of the plain or the ROT13 view), false for the reversed ones. Each view that
