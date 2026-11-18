@@ -9,7 +9,7 @@ import {
   VIEW_SEP, withPythonDigits,
 } from "./preprocessor.js";
 import {
-  RawAlign, checkNegation, cpAt, cpBack, cpBefore, cpFwd, enrichmentSpans, isDefensivelyFramed, reversedSpans, isPySpace,
+  RawAlign, RawCopies, checkNegation, cpAt, cpBack, cpBefore, cpFwd, enrichmentSpans, isDefensivelyFramed, reversedSpans, isPySpace,
   samePlace, viewEnd,
 } from "./negation.js";
 
@@ -535,9 +535,48 @@ function copyOfJudgedHit(entry, view, m, lo, hi, base) {
 // True when this hit sits under a negation or, for a mechanism rule (`framed`),
 // inside a clause that describes the attack. `negation` is false for a rule with
 // negation_immune, where only the framing can cover a hit.
-function hitCovered(view, start, align, end, framed, negation) {
-  return (negation && checkNegation(view, start, align, end))
+function hitCovered(view, start, align, end, framed, negation, frame) {
+  return (negation && (checkNegation(view, start, align, end) || frameNegates(frame, start, end)))
     || (framed && isDefensivelyFramed(view, start, align, end));
+}
+
+// The raw frame of one view built from the raw text (port of engine.py _raw_frame, its `origin` half).
+// `origin(offset)` is the raw index of the character a hit starting at `offset` is, or null: only when
+// the opening of the hit, HIT characters of it, reads as the same characters at the same place in the
+// raw text. A hit made of mapped, expanded, decoded or deleted characters is not a copy of anything the
+// raw text says there, so the raw text does not speak for it. `shape` is the normalized view, whose
+// plain text ends at its first separator.
+function rawFrame(align, copies, raw, view, build, shape, cut) {
+  const plainEnd = shape ? viewEnd(view, 0) : view.length;
+  const id = copies.nextId = (copies.nextId ?? 0) + 1;
+  return {
+    raw,
+    origin(offset) {
+      if (offset < 0 || offset >= plainEnd) return null;
+      const end = Math.min(cpFwd(view, offset, RawAlign.HIT), shape ? viewEnd(view, offset) : view.length);
+      return align.holds(view, offset, end) ? align.origin(view, offset) : null;
+    },
+    // For a hit with no origin whose place the walk of the view never reached: true when its words, up to
+    // `stop`, are in the raw text and every occurrence of them is negated there. A hit the walk did reach,
+    // and every hit of a view that was cut short, is left to the view alone.
+    copied(offset, stop) {
+      if (cut || offset < 0 || offset >= plainEnd || align.covers(view, offset)) return false;
+      const open = Math.min(cpFwd(view, offset, RawCopies.OPEN), stop, shape ? viewEnd(view, offset) : view.length);
+      return copies.negated(id, view, plainEnd, view.slice(offset, open), build);
+    },
+  };
+}
+
+// A hit of a view that is a copy of the raw text is judged in the raw text too, and is negated if
+// either frame negates it (engine.py _resolve_cover negated_at). The end of the hit is handed on only
+// when its last character is also placed in the raw text at the same distance.
+function frameNegates(frame, start, end) {
+  if (!frame) return false;
+  const at = frame.origin(start);
+  if (at === null) return frame.copied(start, end);
+  const last = frame.origin(end - 1);
+  const stop = last !== null && last - at === end - 1 - start ? last + 1 : null;
+  return checkNegation(frame.raw, at, null, stop);
 }
 
 const bump = (spent, key) => {
@@ -553,7 +592,7 @@ const bump = (spent, key) => {
 // them is read, unless the view keeps the offsets of the plain view and the hit
 // is the copy of a hit the plain view has already shown. `tail` is the input
 // with its invisible shadow characters read as ASCII, behind the separators.
-function laterLive(entry, subject, first, align, limit, tail, spans, spent, pid, framed, negation) {
+function laterLive(entry, subject, first, align, limit, tail, spans, spent, pid, framed, negation, frame) {
   const mode = entry.mode;
   if (mode === "guarded" || mode === "windowed") return false;
   // The first hit of the rule is the one that is judged; this hit is a later hit
@@ -601,7 +640,7 @@ function laterLive(entry, subject, first, align, limit, tail, spans, spent, pid,
       prev = m;
       if (base !== null && base.length && copyOfJudgedHit(entry, view, m, copyLo, stop, base)) continue;
       if (bump(spent, pid) > LATER_HITS) return true;   // the cap is spent and a further hit remains
-      if (base !== null || !hitCovered(view, m.index, align, matchEnd(m), framed, negation)) return true;
+      if (base !== null || !hitCovered(view, m.index, align, matchEnd(m), framed, negation, view === subject ? frame : null)) return true;
     }
   }
   return false;
@@ -613,13 +652,14 @@ function laterLive(entry, subject, first, align, limit, tail, spans, spent, pid,
 // is not covered or any later hit is live. A later hit is covered by the same two
 // ways, so a framed or negated first hit never hides a live one. A rule with
 // negation_immune is never covered by a negation.
-function regexCovered(pattern, entry, subject, match, align, limit, tail, spans, spent, framed) {
+function regexCovered(pattern, entry, subject, match, align, limit, tail, spans, spent, framed, frame) {
   const negation = !pattern.negation_immune;
   let how;
-  if (negation && checkNegation(subject, match.index, align, matchEnd(match))) how = "negation";
+  if (negation && (checkNegation(subject, match.index, align, matchEnd(match))
+      || frameNegates(frame, match.index, matchEnd(match)))) how = "negation";
   else if (framed && isDefensivelyFramed(subject, match.index, align, matchEnd(match))) how = "framing";
   else return null;
-  if (laterLive(entry, subject, match, align, limit, tail, spans, spent, pattern.id, framed, negation)) {
+  if (laterLive(entry, subject, match, align, limit, tail, spans, spent, pattern.id, framed, negation, frame)) {
     return null;
   }
   return how;
@@ -773,6 +813,12 @@ export function scan(text, channel = "message") {
   // payload hidden with invisible characters past the cut.
   let folded = null;
   let compact = null;
+  // How each view behind the plain one is built from the raw text, and whether it was cut short: what the
+  // raw frame needs to tell which raw copies a view still shows (engine.py _fold_text and the like).
+  const builds = new Map();
+  let foldedCut = false;
+  const foldBuild = (t) => replaceHomoglyphs(normalizeUnicode(stripInvisible(t)));
+  const compactBuild = (t) => replaceHomoglyphs(stripInvisible(t));
   if (/[^\x00-\x7f]/.test(text) || CONTROL_CHARS.test(text)) {
     const stripped = stripInvisible(text);
     folded = replaceHomoglyphs(normalizeUnicode(stripped));
@@ -780,18 +826,25 @@ export function scan(text, channel = "message") {
       compact = replaceHomoglyphs(stripped);
       if (compact === text) compact = null;
       folded = folded.slice(0, cpFwd(folded, 0, MAX_FOLDED_VIEW));
+      foldedCut = true;
     }
     if (folded === text) folded = null;
+    if (folded !== null) builds.set(folded, [foldBuild, foldedCut]);
+    if (compact !== null) builds.set(compact, [compactBuild, false]);
   }
   // The shadow reading with its controls deleted, read as a subject of its own. Built only when the
   // shadow reading holds a control.
   let shadowFolded = null;
   if (shadow !== null && CONTROL_CHARS.test(shadow)) {
-    shadowFolded = replaceHomoglyphs(normalizeUnicode(stripInvisible(decodeShadowAscii(text) ?? text)));
+    const shadowBuild = (t) => foldBuild(decodeShadowAscii(t) ?? t);
+    shadowFolded = shadowBuild(text);
+    let shadowCut = false;
     if (shadowFolded.length > MAX_FOLDED_VIEW && codePointLength(shadowFolded) > MAX_FOLDED_VIEW) {
       shadowFolded = shadowFolded.slice(0, cpFwd(shadowFolded, 0, MAX_FOLDED_VIEW));
+      shadowCut = true;
     }
     if (shadowFolded === shadow) shadowFolded = null;
+    else builds.set(shadowFolded, [shadowBuild, shadowCut]);
   }
   // The widened readings, after the fold above and as subjects of their own: every code point that
   // renders as nothing deleted, NFKC, look-alike letters and punctuation mapped, a blank-drawn
@@ -807,17 +860,27 @@ export function scan(text, channel = "message") {
     const decoded = decodeLetterReferences(text);
     const spaced = spaceIgnorableBetweenWords(decoded);
     if (spaced !== null) keywordView = keywordViewBetweenWords(decoded, LINE_BREAK_CHARS);
-    const readings = [stripIgnorable(decoded)];
-    if (spaced !== null) readings.push(stripIgnorable(spaced));
-    for (const stripped of readings) {
+    const readings = [[stripIgnorable(decoded), false]];
+    if (spaced !== null) readings.push([stripIgnorable(spaced), true]);
+    // The raw text read as the reading reads it, for the raw frame's marked copy.
+    const spacedText = (t) => { const d = decodeLetterReferences(t); const sp = spaceIgnorableBetweenWords(d); return sp === null ? d : sp; };
+    const readingOf = (t, spacedReading) => stripIgnorable(spacedReading ? spacedText(t) : decodeLetterReferences(t));
+    for (const [stripped, spacedReading] of readings) {
       let wideFolded = replaceLookalikes(normalizeUnicode(stripped));
       let wideCompact = null;
+      let wideCut = false;
       if (wideFolded.length > MAX_FOLDED_VIEW && codePointLength(wideFolded) > MAX_FOLDED_VIEW) {
         wideCompact = replaceLookalikes(stripped);
         wideFolded = wideFolded.slice(0, cpFwd(wideFolded, 0, MAX_FOLDED_VIEW));
+        wideCut = true;
       }
-      for (const view of [wideFolded, wideCompact]) {
+      const wideBuilds = [
+        [wideFolded, (t) => replaceLookalikes(normalizeUnicode(readingOf(t, spacedReading))), wideCut],
+        [wideCompact, (t) => replaceLookalikes(readingOf(t, spacedReading)), false],
+      ];
+      for (const [view, build, cut] of wideBuilds) {
         if (view === null || view === text || view === folded || view === compact || wide.includes(view)) continue;
+        builds.set(view, [build, cut]);
         wide.push(view);
         // A hit made of decoded characters is not a copy of what the raw text says at that place, so a
         // cue near it in the raw text does not govern it: these readings are read against the raw input.
@@ -916,6 +979,20 @@ export function scan(text, channel = "message") {
   // in them that nothing covers gives the rule its plain severity. The covered
   // finding is kept only when every hit is covered.
   const foldCache = new Map();
+  // Only the views that are built from the raw text have a raw frame; the shadow and the raw text itself
+  // do not. Made the first time a rule reads the view.
+  const rawCopies = new RawCopies(text);
+  const frames = new Map();
+  const frameOf = (subject, kind) => {
+    if (kind === "raw" || kind === "shadow") return null;
+    let f = frames.get(subject);
+    if (f === undefined) {
+      const [build, cut] = kind === "normalized" ? [(t) => normalizeWithLength(t)[0], false] : (builds.get(subject) ?? [null, true]);
+      f = rawFrame(align, rawCopies, text, subject, build, kind === "normalized", cut);
+      frames.set(subject, f);
+    }
+    return f;
+  };
   for (const { pattern, compiled } of regexPatterns) {
     if (!channelHit(pattern)) continue;
     if (seen.has(pattern.id)) continue;
@@ -950,9 +1027,10 @@ export function scan(text, channel = "message") {
         // results). Do NOT "fix" by adding the window offset; parity depends on
         // mirroring engine.py exactly.
         const cover = regexCovered(
-          pattern, entry, subject, m, kind === "raw" || kind === "wide" ? null : align,
+          pattern, entry, subject, m, kind === "raw" ? null : align,
           isNormalized ? viewEnd(normalized, m.index) : null,
-          isNormalized ? tail : null, isNormalized ? spans : null, laterSpent, framed);
+          isNormalized ? tail : null, isNormalized ? spans : null, laterSpent, framed,
+          frameOf(subject, kind));
         if (cover !== null) {
           if (heldHit === null) heldHit = held(pattern, cpHead(m[0], 50), cover);
           continue;

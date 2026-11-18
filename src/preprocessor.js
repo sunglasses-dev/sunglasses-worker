@@ -477,6 +477,59 @@ const LOOKALIKES = { ...HOMOGLYPHS, ...PUNCT_LOOKALIKES, ...BLANKS };
 const WORD_CHAR_CLASS = "A-Za-z0-9" + Object.keys(HOMOGLYPHS).map((c) => hex(c.codePointAt(0))).join("");
 const IGNORABLE_BETWEEN_WORDS = new RegExp("(?<=[" + WORD_CHAR_CLASS + "])[" + IGNORABLE_CLASS + "]+(?=[" + WORD_CHAR_CLASS + "])", "gu");
 
+// ── The walk's reading of the widened fold (negation.js Walk.widened) ─────────────────────────────
+// Port of preprocessor.py's use of IGNORABLE_CHARS, PUNCT_LOOKALIKES, BLANKS, WORD_CHAR, decoded_before
+// and decoded_at by engine.py _Walk._widened.
+const IGNORABLE_STICKY = new RegExp("[" + IGNORABLE_CLASS + "]+", "uy");
+const IGNORABLE_ONE_CP = new RegExp("^[" + IGNORABLE_CLASS + "]$", "u");
+const WORD_CHAR_ONE = new RegExp("^[" + WORD_CHAR_CLASS + "]$", "u");
+
+// End of the run of ignorable code points that starts at text[at], or -1 when text[at] is not one.
+export function ignorableRunEnd(text, at) {
+  IGNORABLE_STICKY.lastIndex = at;
+  return IGNORABLE_STICKY.test(text) ? IGNORABLE_STICKY.lastIndex : -1;
+}
+
+// True when `ch` (one code point, or "") is an ignorable code point / a letter or digit the fold reads.
+export const isIgnorableChar = (ch) => ch !== "" && IGNORABLE_ONE_CP.test(ch);
+export const isWordChar = (ch) => ch !== "" && WORD_CHAR_ONE.test(ch);
+
+// The ASCII character a punctuation look-alike or a blank-drawn character is mapped to, else undefined.
+export const lookalikeOf = (ch) => PUNCT_LOOKALIKES[ch] ?? BLANKS[ch];
+
+const REFERENCE_TAIL = new Set("0123456789abcdefABCDEFxX;");
+const LETTER_REFERENCE_AT = /&#(?:[xX]0*([0-9A-Fa-f]{1,6})|0*([0-9]{1,7}));?/y;
+function letterReferenceAt(text, at) {
+  LETTER_REFERENCE_AT.lastIndex = at;
+  const m = LETTER_REFERENCE_AT.exec(text);
+  if (m === null) return null;
+  const value = m[1] !== undefined ? parseInt(m[1], 16) : parseInt(m[2], 10);
+  const letter = value < 128 && /[0-9A-Za-z]/.test(String.fromCharCode(value)) ? String.fromCharCode(value) : m[0];
+  return { end: at + m[0].length, text: letter };
+}
+
+// The code point that decodeLetterReferences(text) holds just before what text[pos] becomes, or "".
+export function decodedBefore(text, pos) {
+  let k = pos;
+  while (k > 0 && REFERENCE_TAIL.has(text[k - 1])) k--;
+  if (k >= 2 && text.startsWith("&#", k - 2)) {
+    const ref = letterReferenceAt(text, k - 2);
+    if (ref !== null && ref.end === pos) return Array.from(ref.text).pop();
+  }
+  if (pos <= 0) return "";
+  const last = text.charCodeAt(pos - 1);
+  return last >= 0xdc00 && last <= 0xdfff && pos >= 2 ? text.slice(pos - 2, pos) : text[pos - 1];
+}
+
+// The first code point that decodeLetterReferences makes of text[pos:], or "" at the end.
+export function decodedAt(text, pos) {
+  if (text.startsWith("&#", pos)) {
+    const ref = letterReferenceAt(text, pos);
+    if (ref !== null) return Array.from(ref.text)[0];
+  }
+  return pos < text.length ? String.fromCodePoint(text.codePointAt(pos)) : "";
+}
+
 // Delete every code point that renders as nothing, except that a run of them between two Braille
 // cells is read as one space.
 export function stripIgnorable(text) {
