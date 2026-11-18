@@ -1,3 +1,4 @@
+import { HTML5_ENTITIES } from "./html5_entities.js";
 // Sunglasses Worker — preprocessor port of sunglasses/preprocessor.py (v0.4.9).
 // Stage order and semantics mirror the Python pipeline; known deltas are listed
 // in LIMITATIONS (exported for the /about payload).
@@ -75,14 +76,6 @@ export const INVISIBLE_CHARS = new RegExp(
   "gu",
 );
 
-const NAMED_ENTITIES = {
-  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ",
-  sol: "/", bsol: "\\", colon: ":", semi: ";", equals: "=", grave: "`",
-  dollar: "$", percnt: "%", num: "#", lpar: "(", rpar: ")", lbrack: "[",
-  rbrack: "]", lbrace: "{", rbrace: "}", vert: "|", ast: "*", plus: "+",
-  comma: ",", period: ".", quest: "?", excl: "!", tilde: "~", lowbar: "_",
-};
-
 export function stripInvisible(text) {
   return text.replace(INVISIBLE_CHARS, "");
 }
@@ -140,9 +133,8 @@ const INVALID_CODEPOINTS = new Set([1, 2, 3, 4, 5, 6, 7, 8, 11, 14, 15, 16, 17, 
 // a payload written without semicolons was invisible to the port. The pattern
 // and the decision order below are Python's `html.unescape`, transcribed:
 //   &(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)
-// Named references still resolve against the subset this port carries, and that
-// subset remains a documented delta. The numeric form, its optional semicolon and
-// its invalid code point handling agree with Python across the ordinary range.
+// Named references resolve against Python's whole html5 table (html5_entities.js), the name written
+// exactly as the table keys it, with or without the semicolon as the table has it.
 //
 // ONE NUMERIC DELTA REMAINS and it is not closed. A reference of several hundred
 // digits overflows and is left encoded here where Python returns U+FFFD.
@@ -162,24 +154,12 @@ export function decodeHtmlEntities(text) {
       if (INVALID_CODEPOINTS.has(code)) return "";
       return String.fromCodePoint(code);
     }
-    // Longest named prefix wins and the remainder is kept, which is how
-    // `&notit;` becomes `\u00acit;` rather than staying whole.
-    //
-    // THE TERMINATING SEMICOLON IS PART OF THE NAME. Python's table is keyed
-    // with it, `quot;` as well as `quot`, and this table is keyed without it, so
-    // matching the stem and re-appending what followed turned every ordinary
-    // `&quot;` into a quote FOLLOWED BY A SEMICOLON. The independent review measured the cost:
-    // 100 documents across 2 channels, 200 block-to-allow pairs on the six API
-    // siblings, from one character.
-    //
-    // I introduced this tonight while making the numeric form semicolon
-    // optional, and my own probe showed `&notit;` coming back undecoded. I read
-    // that as the documented named-subset delta, which it also is, and stopped.
-    // A wrong answer with a ready explanation is the easiest kind to keep.
-    for (let x = body.length; x > 0; x--) {
-      const slice = body.slice(0, x);
-      const key = slice.endsWith(";") ? slice.slice(0, -1) : slice;
-      const candidate = NAMED_ENTITIES[key.toLowerCase()];
+    // The whole name as written, else its longest prefix that the table has without a semicolon, with the
+    // remainder kept: `&notit;` reads as the not sign followed by `it;`. Python's html.unescape, transcribed.
+    const whole = HTML5_ENTITIES.get(body);
+    if (whole !== undefined) return whole;
+    for (let x = body.length - 1; x > 1; x--) {
+      const candidate = HTML5_ENTITIES.get(body.slice(0, x));
       if (candidate !== undefined) return candidate + body.slice(x);
     }
     return "&" + body;
