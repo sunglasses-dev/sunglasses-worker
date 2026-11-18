@@ -21,7 +21,7 @@
 import {
   HOMOGLYPHS, INVISIBLE_CHARS, LEET, VIEW_SEP, ENRICH_MAX_LEN,
   decodeHexEscapes, decodeHtmlEntities, decodeRot13, decodeShadowAscii,
-  decodeUrlEncoding, normalizeUnicode, replaceHomoglyphs, stripInvisible,
+  decodeUrlEncoding, normalizeUnicode, pyStrip, replaceHomoglyphs, stripInvisible,
   ignorableRunEnd, isIgnorableChar, isWordChar, lookalikeOf, decodedBefore, decodedAt,
 } from "./preprocessor.js";
 
@@ -862,7 +862,7 @@ function quotedGapHolds(gap, text, matchStart, matchEnd, align, label = false) {
     if (ws.some((w) => NEGATION_CLAUSE_WORDS.has(w))) return false;
     opener = m.groups.open;
   } else if (label && LABEL_OPENER_RX.test(gap)) {
-    opener = gap.trim();
+    opener = pyStrip(gap);
   } else {
     return false;
   }
