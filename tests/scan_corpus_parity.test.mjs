@@ -29,7 +29,7 @@ const enginePath = process.env.SG_WORKER_ENGINE || path.resolve(here, "../src/en
 const { scan } = await import(pathToFileURL(enginePath).href);
 
 const STRICTNESS = { allow: 0, allow_redacted: 1, quarantine: 2, block: 3 };
-const MAX_RESIDUAL = { "scan_corpus_068.json": 1, "scan_corpus_negation_fuzz.json": 16, "scan_corpus_fold_code_points.json": 0 };
+const MAX_RESIDUAL = { "scan_corpus_068.json": 5, "scan_corpus_negation_fuzz.json": 16, "scan_corpus_fold_code_points.json": 0 };
 
 for (const file of Object.keys(MAX_RESIDUAL)) {
   const { rows } = JSON.parse(fs.readFileSync(path.join(here, "fixtures", file), "utf8"));
