@@ -9,7 +9,7 @@ import {
   VIEW_SEP, withPythonDigits,
 } from "./preprocessor.js";
 import {
-  RawAlign, checkNegation, cpAt, cpBack, cpBefore, cpFwd, enrichmentSpans, isDefensivelyFramed, isPySpace,
+  RawAlign, checkNegation, cpAt, cpBack, cpBefore, cpFwd, enrichmentSpans, isDefensivelyFramed, reversedSpans, isPySpace,
   samePlace, viewEnd,
 } from "./negation.js";
 
@@ -651,6 +651,7 @@ function viewParts(norm, foldedLen, shadowText) {
   if (tail !== null) {
     regions.push([tail.text, tailStart, 0, tail.plain, null]);
     for (const [lo, hi, kept] of tail.spans) regions.push([tail.text, tailStart, lo, hi, kept ? [0, tail.plain] : []]);
+    regions.reversed = reversedSpans(norm);
   }
   return { plainEnd, tail, spans, regions };
 }
@@ -667,6 +668,9 @@ function laterKeywordLive(regions, keyword, skip, align, spent, pid) {
       const isFirst = skip[0] === keyword && skip[1] === at + shift;
       if (!isFirst && wordBounded(view, at, keyword)
           && !(base !== null && base.length && samePlace(view, at, at + keyword.length, lo, hi, base))) {
+        // A hit in a span that reads as the text before it written backwards is never lowered.
+        const place = at + shift;
+        if (regions.reversed && regions.reversed.some(([a, b]) => place >= a && place < b)) return true;
         if (bump(spent, pid) > LATER_HITS || base !== null
             || !checkNegation(view, at, align, at + keyword.length)) {
           return true;
@@ -753,6 +757,7 @@ export function scan(text, channel = "message") {
     for (const [lo, hi, kept] of tail.spans) {
       regions.push([tail.text, tailStart, lo, hi, kept ? [0, tail.plain] : []]);
     }
+    regions.reversed = reversedSpans(normalized);
   }
 
   // The raw text with three of the preprocessor's character folds applied
