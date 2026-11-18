@@ -22,6 +22,7 @@ export const LIMITATIONS = [
   "Percent decoding. A string carrying an unpaired surrogate is accepted by this API with status 200 and becomes U+FFFD here where Python preserves it. Ordinary, astral and leading-BOM inputs agree",
   "Base64 segment screening. The printable test reads this runtime's Unicode tables where Python reads its own, so a character assigned in one and not the other can decide a segment differently.",
   "Bounded search. A long single-word document is read with a bounded search, as in the pip scanner. 30 scans per minute per IP applies",
+  "Lower on some texts. On some texts this hosted scan answers lower than the pip scanner. Measured on 18 November 2026 in the serving runtime beside the pip scanner on 152,670 probe rows, 671 answer lower. A fix is being built. For a decision that matters use the pip scanner",
 ];
 
 export const HOMOGLYPHS = {
