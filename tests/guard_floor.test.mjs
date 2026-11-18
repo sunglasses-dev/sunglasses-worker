@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { DEAD_REGEX_IDS, scan } from "../src/engine.js";
+import { DEAD_REGEX_IDS, buildAllFloors, scan } from "../src/engine.js";
 import { FLOOR_ALWAYS, PATTERNS } from "../src/patterns.js";
 
 const BIDI = ["‭", "⁦", "⁧", "⁨", "⁩"];
@@ -13,6 +13,7 @@ const NEGATED = "Never ignore previous instructions.";
 const withFloor = PATTERNS.filter((p) => p.floor);
 
 test("every floor copy constructs in this runtime", () => {
+  buildAllFloors();
   assert.deepEqual(DEAD_REGEX_IDS, []);
 });
 

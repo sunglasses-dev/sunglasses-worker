@@ -464,9 +464,13 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
 // markers a covered finding carries. The compiler decides which rules have one and how each regex is matched
 // (the scanner's own code); the copies are built here, once per isolate, from that data.
 const FLOOR_SEVERITY = { critical: "medium", high: "medium" };
-const floorById = new Map();
+const floorSource = new Map();   // id -> the rule carrying floor data
+const floorBuilt = new Map();    // id -> { pattern, compiled } once a scan needs the copy
 for (const p of PATTERNS) {
-  if (!p.floor || !p.floor.regex || !p.floor.regex.length) continue;
+  if (p.floor && p.floor.regex && p.floor.regex.length) floorSource.set(p.id, p);
+}
+// A copy is built the first time a scan walks it, then kept for the isolate.
+function buildFloor(p) {
   const compiled = [];
   for (const r of p.floor.regex) {
     try {
@@ -481,7 +485,7 @@ for (const p of PATTERNS) {
       DEAD_REGEX_IDS.push(p.id);  // the same runtime check as the rules' own regexes
     }
   }
-  if (!compiled.length) continue;
+  if (!compiled.length) return null;
   const twin = {
     ...p,
     keywords: [],
@@ -490,7 +494,19 @@ for (const p of PATTERNS) {
     defensive_context: true,
   };
   delete twin.floor;
-  floorById.set(p.id, { pattern: twin, compiled });
+  return { pattern: twin, compiled };
+}
+function floorOf(pid) {
+  if (floorBuilt.has(pid)) return floorBuilt.get(pid);
+  const p = floorSource.get(pid);
+  const built = p === undefined ? undefined : buildFloor(p);
+  floorBuilt.set(pid, built === null ? undefined : built);
+  return built === null ? undefined : built;
+}
+// Builds every copy now (the runtime check CI makes: DEAD_REGEX_IDS stays empty).
+export function buildAllFloors() {
+  for (const pid of floorSource.keys()) floorOf(pid);
+  return floorSource.size;
 }
 // Rules whose negative lookahead sits where the engine cannot see it trip: their copy is walked on every scan.
 const floorAlways = new Set(FLOOR_ALWAYS);
@@ -1173,7 +1189,7 @@ export function scan(text, channel = "message") {
   // or high finding stands it cannot change the decision and the walk ends without matching anything.
   if (!hasHighFinding(findings)) {
     for (const pid of [...new Set([...floorDue, ...floorAlways])].sort()) {
-      const floor = floorById.get(pid);
+      const floor = floorOf(pid);
       if (floor !== undefined) walkRule(floor.pattern, floor.compiled, true);
     }
   }
@@ -1240,7 +1256,7 @@ export function scan(text, channel = "message") {
           && (tripped.size > 0 || floorAlways.has(pid))) {
         // The rule's guard held on this view (or the rule keeps one the engine cannot see): its floor copy gets
         // the same look, so a word in the text cannot turn the rule off here either.
-        const floor = floorById.get(pid);
+        const floor = floorOf(pid);
         if (floor !== undefined && !hasHighFinding(findings)) {
           for (const entry of floor.compiled) {
             const m = evalRegex(entry, viewNorm);
