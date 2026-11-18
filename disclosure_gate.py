@@ -23,6 +23,10 @@ THE CHARACTER CLASS BRANCH IS DEFENSIVE AND CURRENTLY UNEXERCISED. Zero of the
 does not change today's count and this gate would not notice. It is kept because
 the corpus grows and a backspace counted as a boundary would inflate a
 disclosure, but nobody should read a green run as evidence that it works.
+
+THE WORD CLASS ENTRY OF THE LIST IS RECOUNTED THE SAME WAY. /about prints how many rules hold the compiled word class and in
+how many regex cores (patterns and mechanisms, in total and apart). The gate counts the cores that carry the class from the
+compiled artifacts, reads the six printed numbers out of the string, and fails when any one differs.
 """
 import json
 import pathlib
@@ -31,6 +35,8 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent
+# The word class compile_patterns.py writes in place of \\w (its WORD_CLASS), inside a class.
+WORD_CLASS = "\\p{L}\\p{N}_"
 # Opens both EDGE_BOUNDARY and EDGE_NON_BOUNDARY in compile_patterns.py.
 EDGE_OPEN = "(?<=[\\w\u0130\u0131\\u0080-\\u{10FFFF}])"
 
@@ -46,7 +52,9 @@ const grab = (rules) => rules.map((r) => {
   }
   return out;
 });
-console.log(JSON.stringify({patterns: grab(p.PATTERNS), mechanisms: grab(m.MECHANISMS)}));
+const cores = (rules) => rules.map((r) => (r.regex || []).map((rx) => rx.source || ""));
+console.log(JSON.stringify({patterns: grab(p.PATTERNS), mechanisms: grab(m.MECHANISMS),
+                            pattern_cores: cores(p.PATTERNS), mechanism_cores: cores(m.MECHANISMS)}));
 """
 
 
@@ -77,6 +85,22 @@ def word_boundaries(source: str) -> int:
     # the lookbehind that opens either form is counted as one boundary.
     found += source.count(EDGE_OPEN)
     return found
+
+
+def word_class_reach(cores):
+    """(rules, entries): the rules with a regex core that holds the word class, and those cores. A core is one entry
+    of a rule's regex list, as the compiler writes it; a guard or an anchor is not a core."""
+    rules = entries = 0
+    for rule in cores:
+        held = sum(1 for source in rule if WORD_CLASS in source)
+        if held:
+            rules += 1
+            entries += held
+    return rules, entries
+
+
+def _number(text):
+    return int(text.replace(",", ""))
 
 
 def main() -> int:
@@ -127,16 +151,36 @@ def main() -> int:
                 f"README.md says {stated_reach} of {stated_total}; the compiled "
                 f"artifacts say {reach} of {total}")
 
+    # The word class entry of the list: its counts are read out of the printed string, never restated here.
+    wc_rules, wc_entries = word_class_reach(data["pattern_cores"])
+    wc_mech_rules, wc_mech_entries = word_class_reach(data["mechanism_cores"])
+    wc_measured = (wc_rules + wc_mech_rules, wc_entries + wc_mech_entries,
+                   wc_rules, wc_entries, wc_mech_rules, wc_mech_entries)
+    wc_claim = re.search(
+        r"Reach is (\d[\d,]*) rules across (\d[\d,]*) compiled entries, being (\d[\d,]*) rules in "
+        r"(\d[\d,]*) entries plus (\d[\d,]*) mechanism rules in (\d[\d,]*) entries", about)
+    if not wc_claim:
+        failures.append("src/preprocessor.js no longer states the word class reach in the form this gate reads. "
+                        "A disclosure this gate cannot find is a disclosure it cannot check.")
+    else:
+        wc_stated = tuple(_number(group) for group in wc_claim.groups())
+        if wc_stated != wc_measured:
+            failures.append(
+                "/about word class says %d rules across %d entries, being %d in %d plus %d mechanism rules in %d; "
+                "the compiled artifacts say %d across %d, being %d in %d plus %d in %d"
+                % (wc_stated + wc_measured))
+
     if failures:
         print("DISCLOSURE GATE FAIL")
         for line in failures:
             print("  " + line)
         print(f"\n  measured: {reach} of {total} rules carry a word boundary in "
-              f"a core or a guard")
+              f"a core or a guard; {wc_measured[0]} rules across {wc_measured[1]} entries hold the word class")
         return 1
 
     print(f"disclosure gate clean: {reach} of {total} rules carry a word "
-          f"boundary, and /about and README both say so")
+          f"boundary, and /about and README both say so; {wc_measured[0]} rules across {wc_measured[1]} entries "
+          f"hold the word class, and /about says so")
     return 0
 
 
