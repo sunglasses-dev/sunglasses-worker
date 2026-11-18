@@ -118,8 +118,18 @@ export function controlsAsSpaces(text) {
   });
 }
 
+// Python's str.strip(): the blanks Python reads as whitespace at either end. String.prototype.trim()
+// keeps U+001C, U+001D, U+001E, U+001F and U+0085 at an edge and drops U+FEFF, which Python keeps.
+export function pyStrip(text) {
+  let start = 0;
+  let end = text.length;
+  while (start < end && PY_WS_CHAR.test(text[start])) start++;
+  while (end > start && PY_WS_CHAR.test(text[end - 1])) end--;
+  return text.slice(start, end);
+}
+
 export function collapseWhitespace(text) {
-  return text.replace(/[\t\r\x0b\x0c]+/g, " ").replace(/ {2,}/g, " ").trim();
+  return pyStrip(text.replace(/[\t\r\x0b\x0c]+/g, " ").replace(/ {2,}/g, " "));
 }
 
 // Python's html module tables, extracted from the interpreter rather than
