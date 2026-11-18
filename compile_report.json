@@ -2,5 +2,7 @@
  "total_source": 1565,
  "ported": 1565,
  "keyword_only": 210,
- "failed": []
+ "failed": [],
+ "floor_copies": 535,
+ "floor_failed": []
 }
