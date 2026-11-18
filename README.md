@@ -167,13 +167,10 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   Python also matches U+001C to U+001F and U+0085, JavaScript also matches
   U+FEFF. The COMPILED PATTERNS use Python's set.
 
-  The preprocessor does NOT, and this sentence used to claim both. Measured on
-  edge trimming, all six characters disagree: Python strips U+001C, U+001D,
-  U+001E, U+001F and U+0085 where `collapseWhitespace` leaves them, and
-  `collapseWhitespace` strips U+FEFF where Python leaves it. Leading and trailing
-  both, interior neither. So the
-  normalized view the two engines match against can differ at the edges of a
-  document even where the patterns agree.
+  The preprocessor trims the edges of a document the way Python's `str.strip()`
+  does: U+001C, U+001D, U+001E, U+001F and U+0085 are removed at either end and
+  U+FEFF is kept, so the normalized view both engines match against has the same
+  edges.
 
   The rewrite then broke the any-character idiom, because splicing that set into
   a class beside its own negation drops exactly the character the two definitions
