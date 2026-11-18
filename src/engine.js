@@ -2,7 +2,7 @@
 // Same lanes, same order: keyword index on NORMALIZED text, regexes on RAW text,
 // negation window, worst-severity decision.
 import { MECHANISMS } from "./mechanisms.js";
-import { PATTERNS } from "./patterns.js";
+import { FLOOR_ALWAYS, PATTERNS } from "./patterns.js";
 import {
   CONTROL_CHARS, codePointLength, decodeShadowAscii, normalizeUnicode, normalizeWithLength, replaceHomoglyphs, replaceLookalikes,
   decodeLetterReferences, keywordViewBetweenWords, spaceIgnorableBetweenWords, stripIgnorable, stripInvisible,
@@ -66,6 +66,50 @@ function matchWindowed(rx, text) {
     const m = rx.exec(text.slice(i, cpFwd(text, i, COOCCUR_WINDOW)));
     if (m) return m;
     if (at + COOCCUR_WINDOW >= total) break;
+  }
+  return null;
+}
+
+// How far a window edge may move to land on whitespace (engine.py WINDOW_EDGE_SLACK).
+const WINDOW_EDGE_SLACK = 256;
+
+// (start, end) of the window that begins at `i`, with both edges on whitespace where one is near (port of
+// engine.py _window_edges). A cut inside a word makes \b see a word edge the document does not have, so the
+// start moves back to the start of the word it cuts and the end forward to the end of the word it cuts, each
+// by at most WINDOW_EDGE_SLACK: every window holds all of the plain one. `at(k)` is the character at code
+// point k and `n` the length in code points.
+function windowEdges(at, n, i) {
+  let start = i;
+  if (i > 0 && i < n && !isPySpace(at(i - 1)) && !isPySpace(at(i))) {
+    let j = i;
+    while (j > 0 && i - j < WINDOW_EDGE_SLACK && !isPySpace(at(j - 1))) j--;
+    if (j === 0 || isPySpace(at(j - 1))) start = j;
+  }
+  let end = Math.min(i + COOCCUR_WINDOW, n);
+  if (end < n && !isPySpace(at(end)) && !isPySpace(at(end - 1))) {
+    let j = end;
+    while (j < n && j - end < WINDOW_EDGE_SLACK && !isPySpace(at(j))) j++;
+    if (j === n || isPySpace(at(j))) end = j;
+  }
+  return [start, end];
+}
+
+// matchWindowed with the window edges on whitespace. Only the floor copies of the rules the scanner lists ask
+// for it (engine.py _match_windowed with edges); every other rule keeps the plain cut above.
+function matchWindowedEdges(rx, text) {
+  const cps = SURROGATE.test(text) ? Array.from(text) : null;
+  const n = cps === null ? text.length : cps.length;
+  if (n <= COOCCUR_WINDOW) {
+    rx.lastIndex = 0;
+    return rx.exec(text);
+  }
+  const at = cps === null ? (k) => text[k] : (k) => cps[k];
+  for (let i = 0; i < n; i += COOCCUR_STRIDE) {
+    const [from, to] = windowEdges(at, n, i);
+    rx.lastIndex = 0;
+    const m = rx.exec(cps === null ? text.slice(from, to) : cps.slice(from, to).join(""));
+    if (m) return m;
+    if (i + COOCCUR_WINDOW >= n) break;
   }
   return null;
 }
@@ -283,7 +327,10 @@ export function matchLeadin(entry, text, lower = 0) {
 // modes whose offsets are offsets into `text` (anchored, lead-in, plain). The
 // windowed modes report offsets inside a window, never downgrade on negation,
 // and are not asked (port of engine.py _eval_regex).
-function evalRegex(entry, text, folded, pages, start = 0) {
+//
+// `tripped` is a Set the caller keeps: a guard that holds adds `key` to it, which makes the rule due its floor
+// copy (see the guard floor below).
+function evalRegex(entry, text, folded, pages, start = 0, tripped = null, key = null) {
   if (folded !== undefined && canSkip(entry, folded, pages)) return null;
   if (start && (entry.mode === "guarded" || entry.mode === "windowed")) return null;
   if (entry.mode === "anchored") return matchAnchored(entry, text, start);
@@ -291,12 +338,18 @@ function evalRegex(entry, text, folded, pages, start = 0) {
   if (entry.mode === "guarded") {
     for (const g of entry.guards) {
       g.lastIndex = 0;
-      if (g.exec(text)) return null;
+      if (g.exec(text)) {
+        if (tripped !== null) tripped.add(key);
+        return null;
+      }
     }
     return matchWindowed(entry.rx, text);
   }
   if (entry.mode === "windowed") {
     return matchWindowed(entry.rx, text);
+  }
+  if (entry.mode === "windowed_edges") {
+    return matchWindowedEdges(entry.rx, text);
   }
   if (start) {
     if (entry.rxFrom === undefined) {
@@ -402,6 +455,60 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
     }
     if (compiled.length) regexPatterns.push({ pattern: p, compiled });
   }
+}
+
+// THE GUARD FLOOR (port of engine.py _guard_floor_twin / _floor_entry / _floor_walk). Some rules open with a
+// negative lookahead: one word of the text (a negation, a defensive word) defuses the rule. A defused rule stays
+// in place one step lower, so a guard never turns a rule into an allow. The floor copy of a rule is the same
+// regexes with those guards taken out, one severity step lower (critical and high become medium), carrying the
+// markers a covered finding carries. The compiler decides which rules have one and how each regex is matched
+// (the scanner's own code); the copies are built here, once per isolate, from that data.
+const FLOOR_SEVERITY = { critical: "medium", high: "medium" };
+const floorById = new Map();
+for (const p of PATTERNS) {
+  if (!p.floor || !p.floor.regex || !p.floor.regex.length) continue;
+  const compiled = [];
+  for (const r of p.floor.regex) {
+    try {
+      const sticky = r.mode !== "plain";
+      compiled.push({
+        mode: r.mode,
+        rx: new RegExp(withPythonDigits(r.source), r.flags + (sticky ? "y" : "")),
+        guards: [],
+        requires: r.requires,     // the literals the RULE needs: the copy is skipped exactly where the rule is
+      });
+    } catch {
+      DEAD_REGEX_IDS.push(p.id);  // the same runtime check as the rules' own regexes
+    }
+  }
+  if (!compiled.length) continue;
+  const twin = {
+    ...p,
+    keywords: [],
+    severity: FLOOR_SEVERITY[p.severity] ?? p.severity,
+    original_severity: p.severity,
+    defensive_context: true,
+  };
+  delete twin.floor;
+  floorById.set(p.id, { pattern: twin, compiled });
+}
+// Rules whose negative lookahead sits where the engine cannot see it trip: their copy is walked on every scan.
+const floorAlways = new Set(FLOOR_ALWAYS);
+
+function floorFinding(twin, matchedText) {
+  const f = makeFinding(twin, matchedText, false);
+  f.original_severity = twin.original_severity;
+  f.defensive_context = true;
+  return f;
+}
+
+function hasHighFinding(findings) {
+  return findings.some((f) => f.severity === "critical" || f.severity === "high");
+}
+
+function dropFinding(findings, finding) {
+  const at = findings.indexOf(finding);
+  if (at !== -1) findings.splice(at, 1);
 }
 
 // CORROBORATE, DON'T STAMP (v0.3.3) — ids of patterns with at least one usable
@@ -993,9 +1100,14 @@ export function scan(text, channel = "message") {
     }
     return f;
   };
-  for (const { pattern, compiled } of regexPatterns) {
-    if (!channelHit(pattern)) continue;
-    if (seen.has(pattern.id)) continue;
+  // A rule whose guard held is due its floor copy: the copies are walked after every rule has had its own turn,
+  // so the rule's own verdict always comes first.
+  const floorDue = new Set();
+  const floorFound = new Map();   // rule id -> the floor copy's finding; step 3.5 may replace it with the rule's own
+  const floorHeld = new Set();    // rule ids whose held (covered) finding came from the floor copy, not the rule
+  const walkRule = (pattern, compiled, isFloor) => {
+    if (!channelHit(pattern)) return;
+    if (seen.has(pattern.id)) return;
     const framed = pattern.id.startsWith("GLS-MECH-");
     // [view, kind]. The kind says which view it is, because the raw text needs no
     // check against itself and the normalized one carries the other views.
@@ -1020,7 +1132,7 @@ export function scan(text, channel = "message") {
       }
       const isNormalized = kind === "normalized";
       for (const entry of compiled) {
-        const m = evalRegex(entry, subject, view.folded, view.pages);
+        const m = evalRegex(entry, subject, view.folded, view.pages, 0, floorDue, pattern.id);
         if (!m) continue;
         // NOTE: for windowed matches m.index is slice-relative; Python has the
         // IDENTICAL behavior (match.start() is window-relative in _match_windowed
@@ -1035,7 +1147,11 @@ export function scan(text, channel = "message") {
           if (heldHit === null) heldHit = held(pattern, cpHead(m[0], 50), cover);
           continue;
         }
-        findings.push(makeFinding(pattern, cpHead(m[0], 50), false));
+        const finding = isFloor ? floorFinding(pattern, cpHead(m[0], 50)) : makeFinding(pattern, cpHead(m[0], 50), false);
+        findings.push(finding);
+        // A floor copy's hit does not close the rule: its own regexes still get the normalized view in step 3.5,
+        // and what they find there outranks the floor finding.
+        if (isFloor) floorFound.set(pattern.id, finding);
         heldHit = null;
         decided = true;
         break;      // raw decided first; later subjects are only read while covered
@@ -1043,11 +1159,22 @@ export function scan(text, channel = "message") {
       if (decided) break;
     }
     if (decided) {
-      seen.add(pattern.id);
+      if (!isFloor) seen.add(pattern.id);
     } else if (heldHit !== null) {
-      seen.add(pattern.id);
+      if (!isFloor) seen.add(pattern.id);
+      else floorHeld.add(pattern.id);
       heldRegex.set(pattern.id, heldHit);
       findings.push(heldHit);
+    }
+  };
+  for (const { pattern, compiled } of regexPatterns) walkRule(pattern, compiled, false);
+  // The floor copies a scan walks after the rules: those of the rules whose guard held (floorDue, filled while
+  // the rules were walked) and of the rules in FLOOR_ALWAYS. A copy fires at medium at most, so once a critical
+  // or high finding stands it cannot change the decision and the walk ends without matching anything.
+  if (!hasHighFinding(findings)) {
+    for (const pid of [...new Set([...floorDue, ...floorAlways])].sort()) {
+      const floor = floorById.get(pid);
+      if (floor !== undefined) walkRule(floor.pattern, floor.compiled, true);
     }
   }
 
@@ -1077,8 +1204,9 @@ export function scan(text, channel = "message") {
       if (seen.has(pid) && heldFinding === undefined) continue;
       const framed = pid.startsWith("GLS-MECH-");
       let pending = null;
+      const tripped = new Set();
       for (const entry of compiledById.get(pid) || []) {
-        const m = evalRegex(entry, viewNorm);
+        const m = evalRegex(entry, viewNorm, undefined, undefined, 0, tripped, pid);
         if (!m) continue;
         const cover = regexCovered(
           pattern, entry, viewNorm, m, viewAlign, viewEnd(viewNorm, m.index), viewTail, viewSpans,
@@ -1089,10 +1217,18 @@ export function scan(text, channel = "message") {
           }
           continue;
         }
-        if (heldFinding !== undefined) {
+        if (heldFinding !== undefined && !floorHeld.has(pid)) {
           restore(heldFinding);
           heldFinding.matched_text = cpHead(m[0], 50);
         } else {
+          // What stood for the rule was its floor copy: a held one is replaced, and the rule's own finding
+          // carries the rule's own severity (the copy remembers only its lowered one).
+          if (heldFinding !== undefined) dropFinding(findings, heldFinding);
+          const floorHit = floorFound.get(pid);
+          if (floorHit !== undefined) {
+            floorFound.delete(pid);
+            dropFinding(findings, floorHit);
+          }
           seen.add(pid);
           findings.push(makeFinding(pattern, cpHead(m[0], 50), false));
           pending = null;
@@ -1100,7 +1236,24 @@ export function scan(text, channel = "message") {
         decidedLive.add(pid);
         break;
       }
-      if (pending !== null) {
+      if (pending === null && heldFinding === undefined && !seen.has(pid) && !floorFound.has(pid)
+          && (tripped.size > 0 || floorAlways.has(pid))) {
+        // The rule's guard held on this view (or the rule keeps one the engine cannot see): its floor copy gets
+        // the same look, so a word in the text cannot turn the rule off here either.
+        const floor = floorById.get(pid);
+        if (floor !== undefined && !hasHighFinding(findings)) {
+          for (const entry of floor.compiled) {
+            const m = evalRegex(entry, viewNorm);
+            if (m) {
+              const floorHit = floorFinding(floor.pattern, cpHead(m[0], 50));
+              findings.push(floorHit);
+              floorFound.set(pid, floorHit);   // a later view may replace it, never add a second
+              break;
+            }
+          }
+        }
+      }
+      if (pending !== null && !floorFound.has(pid)) {
         seen.add(pid);
         findings.push(pending);
       }

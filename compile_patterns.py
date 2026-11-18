@@ -30,6 +30,9 @@ import sunglasses  # noqa: E402
 from sunglasses import __version__ as SCANNER_VERSION  # noqa: E402
 from sunglasses.patterns import PATTERNS  # noqa: E402
 from sunglasses.engine import SunglassesEngine  # noqa: E402
+from sunglasses.engine import (  # noqa: E402
+    _GUARD_FLOOR_ALWAYS, _GUARD_FLOOR_EXTRA, _guard_floor_twin, _guard_free_source)
+from sunglasses._floor_quiet import FLOOR_QUIET_IDS, FLOOR_WINDOWED_IDS  # noqa: E402
 from sunglasses import _prefilter  # noqa: E402
 
 # One instance, so `_anchor_refusal` is the engine's own decision rather than a
@@ -745,6 +748,46 @@ def _strip_forbidden_identity_escapes(src: str) -> str:
     return "".join(out)
 
 
+def _floor_for(p, failed):
+    """The guard floor of rule `p`, compiled for JS, or None (engine.py `_guard_floor_twin` and `_floor_entry`).
+
+    A rule that opens with a negative lookahead is defused by one word of the text. Its floor copy is the same
+    regexes with those guards taken out; the engine walks it after every rule has had its turn, one severity
+    step lower, so a defused rule stays in place as a quarantine and never turns into an allow. The scanner
+    decides which rules have one (the quiet list and the twin builder), which source each regex becomes, and
+    how each is matched: all of that is read from the scanner's own code, so the Worker is handed the result
+    and does not remake it. The twin's other fields are made by the engine from the rule it belongs to.
+    """
+    pid = p["id"]
+    if pid in FLOOR_QUIET_IDS or _guard_floor_twin(p) is None:
+        return None
+    extra = pid in _GUARD_FLOOR_EXTRA
+    out = []
+    for original in p.get("regex") or []:
+        free = _guard_free_source(original, extra)
+        if free is None:
+            continue
+        try:
+            re.compile(free, re.IGNORECASE)
+        except re.error:
+            continue          # the scanner leaves the copy of a regex that does not compile out as well
+        try:
+            src, fl = convert(free)
+        except ValueError as e:
+            failed.append({"id": pid, "reason": f"floor copy: {e}", "regex": free[:120]})
+            continue
+        if SunglassesEngine._split_caret_predicate(free) is not None:
+            mode = "windowed"  # the scanner's guarded form with no guards left: the whole copy, per window
+        elif pid in FLOOR_WINDOWED_IDS:
+            mode = "windowed_edges"
+        elif SunglassesEngine._is_anchored(free):
+            mode = "windowed"
+        else:
+            mode = "plain"
+        out.append({"mode": mode, "source": src, "flags": fl, "requires": _required_literals(original)})
+    return {"regex": out} if out else None
+
+
 def node_validate(batch):
     """Validate a list of {id, source, flags} in one Node process. Returns list of error
     strings (empty string = OK), aligned with input order."""
@@ -778,6 +821,7 @@ def main():
     to_validate = []       # flat list for node
     slots = []             # (pattern_index, regex_index) aligned with to_validate
 
+    floor_failed = []      # floor copies that did not convert (the report lists them; the test requires none)
     for p in PATTERNS:
         entry = {
             "id": p["id"],
@@ -890,6 +934,9 @@ def main():
                 entry["regex"].append({"mode": "plain", "source": src, "flags": fl,
                                        "requires": _required_literals(rx)})
         if ok:
+            floor = _floor_for(p, floor_failed)
+            if floor is not None:
+                entry["floor"] = floor
             slots.append((len(compiled), entry))
             compiled.append(entry)
 
@@ -913,6 +960,24 @@ def main():
                            "regex": compiled[idx]["regex"][ri]["source"][:120]})
             bad_idx.add(idx)
     compiled = [e for i, e in enumerate(compiled) if i not in bad_idx]
+    # The floor copies are checked in Node the same way. A copy that does not construct is left out and listed.
+    fflat, fowners = [], []
+    for entry in compiled:
+        for fi, r in enumerate((entry.get("floor") or {}).get("regex", [])):
+            fflat.append({"id": entry["id"], "source": r["source"], "flags": r["flags"]})
+            fowners.append((entry, fi))
+    ferrors = node_validate(fflat) if fflat else []
+    drop = {}
+    for (entry, fi), err in zip(fowners, ferrors):
+        if err:
+            floor_failed.append({"id": entry["id"], "reason": f"floor copy, JS RegExp: {err}",
+                                 "regex": entry["floor"]["regex"][fi]["source"][:120]})
+            drop.setdefault(id(entry), (entry, set()))[1].add(fi)
+    for entry, gone in drop.values():
+        entry["floor"]["regex"] = [r for i, r in enumerate(entry["floor"]["regex"]) if i not in gone]
+        if not entry["floor"]["regex"]:
+            del entry["floor"]
+    floor_ids = {e["id"] for e in compiled if e.get("floor")}
 
     kw_only = sum(1 for e in compiled if not e["regex"])
     banner = (f"// AUTO-GENERATED by compile_patterns.py — DO NOT EDIT\n"
@@ -924,14 +989,20 @@ def main():
         f.write(banner
                 + f'export const PATTERNS_VERSION = "{SCANNER_VERSION}";\n'
                 + f'export const COMPILED_FROM = "{SCANNER_SHA}";\n'
-                + "export const PATTERNS = " + json.dumps(compiled, separators=(",", ":")) + ";\n")
+                + "export const PATTERNS = " + json.dumps(compiled, separators=(",", ":")) + ";\n"
+                # The rules whose floor copy every scan walks (engine.py _GUARD_FLOOR_ALWAYS): their negative
+                # lookahead sits where the engine cannot see it trip. Only the ones that have a copy are listed.
+                + "export const FLOOR_ALWAYS = "
+                + json.dumps(sorted(_GUARD_FLOOR_ALWAYS & floor_ids), separators=(",", ":")) + ";\n")
     with open(os.path.join(OUT_DIR, "compile_report.json"), "w") as f:
         json.dump({"total_source": len(PATTERNS), "ported": len(compiled),
-                   "keyword_only": kw_only, "failed": failed}, f, indent=1)
+                   "keyword_only": kw_only, "failed": failed,
+                   "floor_copies": len(floor_ids), "floor_failed": floor_failed}, f, indent=1)
 
     print(f"source patterns : {len(PATTERNS)}")
     print(f"ported to JS    : {len(compiled)}  ({kw_only} keyword-only)")
     print(f"failed          : {len(set(f['id'] for f in failed))}")
+    print(f"floor copies    : {len(floor_ids)}  (failed {len(floor_failed)})")
     for f_ in failed[:10]:
         print(f"  ❌ {f_['id']}: {f_['reason']}")
     if len(failed) > 10:
