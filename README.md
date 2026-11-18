@@ -122,7 +122,7 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   encoded here where Python returns U+FFFD. This paragraph previously said the
   numeric form matched Python outright, which was false for that input.
 
-  The named set is still the common subset rather than the full HTML5 one.
+  The named set is the full HTML5 set, 2,231 names, read in the order Python reads them, checked against 6,706 named-reference rows.
 
   The rewrite that added the numeric form BROKE the named one: the table is keyed
   without the terminating semicolon, so matching the stem and re-appending what
@@ -184,10 +184,9 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   The cost is one rule in both engines. This is a real gap and it is not the
   #157 shape, which is ported and fixed.
 
-- **Decimal digit shorthands, OPEN.** The digit class here misses 750 code
-  points Python counts as digits, which drops a match Python makes and turns a
-  block into an allow. 37 rules across 41 compiled entries use a digit shorthand
-  or its complement.
+- **Decimal digit shorthands, CLOSED.** A digit shorthand here matches the same
+  code points as Python's, read against every code point and a recorded corpus.
+  38 rules use a digit shorthand or its complement.
 - **Base64 segment screening, OPEN in one way.** The padding rules now match
   the pip scanner's: a run is decoded only where the scanner decodes it, so
   padding that cannot complete the last group leaves the run as written and
