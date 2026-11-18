@@ -22,6 +22,7 @@ import {
   HOMOGLYPHS, INVISIBLE_CHARS, LEET, VIEW_SEP, ENRICH_MAX_LEN,
   decodeHexEscapes, decodeHtmlEntities, decodeRot13, decodeShadowAscii,
   decodeUrlEncoding, normalizeUnicode, replaceHomoglyphs, stripInvisible,
+  ignorableRunEnd, isIgnorableChar, isWordChar, lookalikeOf, decodedBefore, decodedAt,
 } from "./preprocessor.js";
 
 export const NEGATION_WINDOW = 50;
@@ -94,6 +95,7 @@ const DEFENSIVE_QUOTED_GAP_RX = new RegExp(
   `^(?: ?(?:(?<words>${WORDS})(?::[ ]?| ))?(?<open>${OPENERS})[ ]?)`);
 
 const ALNUM = /^[\p{L}\p{N}]$/u;
+const isBraille = (ch) => ch !== "" && ch >= "\u2800" && ch <= "\u28ff";
 export const isAlnum = (ch) => ch !== undefined && ch !== "" && ALNUM.test(ch);
 
 // The whole code point that ends just before index i, or starts at index i. A
@@ -359,6 +361,8 @@ export class Walk {
     this.stop = null;       // raw offset from which nothing is vouched for
     this.leftover = null;   // view offsets where an escape the pipeline decodes begins
     this.vcursor = 0;
+    this.markI = [0];       // view index where an identical run starts ...
+    this.markJ = [0];       // ... and the raw index it starts at
   }
 
   stopAt() {
@@ -460,9 +464,19 @@ export class Walk {
       if (j >= this.stopAt()) { this.dead = true; break; }
       const c = charAt(raw, j);
       if (INVISIBLE_ONE.test(c)) {
-        this.cuts.push(i);
-        this.hard.add(i);
-        this.j = j + c.length;
+        // A widened reading put a space where this run is (see widened); the plain fold never holds one there.
+        const runEnd = ignorableRunEnd(raw, j);
+        const spacedEnd = runEnd === -1 ? null : this.spacedRun(i, j, runEnd);
+        if (spacedEnd !== null) {
+          this.changed.push(i);
+          this.i = i + 1;
+          this.j = spacedEnd;
+        } else {
+          this.cuts.push(i);
+          this.hard.add(i);
+          this.j = j + c.length;
+        }
+        this.mark();
         continue;
       }
       if (isPySpace(c)) {
@@ -475,6 +489,7 @@ export class Walk {
           else this.hard.add(i);
         }
         this.j = j + c.length;
+        this.mark();
         continue;
       }
       let matched = false;
@@ -490,10 +505,75 @@ export class Walk {
         }
         this.i = i + reading.length;
         this.j = j + c.length;
+        this.mark();
         break;
       }
-      if (!matched) this.dead = true;
+      if (!matched && !this.widened(i, j)) this.dead = true;
     }
+  }
+
+  // One step of the regex lane's widened fold (stripIgnorable, replaceLookalikes,
+  // spaceIgnorableBetweenWords), tried only where every step above has failed. A
+  // run of code points that render as nothing is either deleted (a hard cut) or
+  // read as the one space the view holds in its place; a punctuation look-alike
+  // or a blank-drawn character is mapped to the one ASCII character it reads as.
+  // Port of engine.py _Walk._widened. True when the step was taken.
+  widened(i, j) {
+    const { raw, view } = this;
+    const end = ignorableRunEnd(raw, j);
+    if (end !== -1) {
+      const spacedEnd = this.spacedRun(i, j, end);
+      if (spacedEnd !== null) {
+        this.changed.push(i);
+        this.i = i + 1;
+        this.j = spacedEnd;
+      } else if (this.betweenBraille(j)) {
+        return false;   // stripIgnorable reads this run as a space in every widened reading
+      } else {
+        this.cuts.push(i);
+        this.hard.add(i);
+        this.j = end;
+      }
+      this.mark();
+      return true;
+    }
+    const c = charAt(raw, j);
+    const mapped = lookalikeOf(c);
+    if (mapped !== undefined && view[i] === mapped) {
+      this.changed.push(i);
+      this.i = i + 1;
+      this.j = j + c.length;
+      this.mark();
+      return true;
+    }
+    return false;
+  }
+
+  // The ignorable run that holds raw[j]: its start's decoded neighbour before it and the
+  // one after its end (what decodeLetterReferences puts on either side).
+  runSides(j, end) {
+    let lo = j;
+    while (lo > 0) {
+      const prev = cpBefore(this.raw, lo);
+      if (!isIgnorableChar(prev)) break;
+      lo -= prev.length;
+    }
+    return [decodedBefore(this.raw, lo), decodedAt(this.raw, end)];
+  }
+
+  betweenBraille(j) {
+    const [before, after] = this.runSides(j, ignorableRunEnd(this.raw, j));
+    return isBraille(before) && isBraille(after);
+  }
+
+  // End of the ignorable run at raw[j] when it is read as the space at view[i], else null.
+  // A builder reads a run as a space only between two Braille cells (stripIgnorable) or
+  // between two letters or digits (the spaced reading).
+  spacedRun(i, j, end) {
+    if (this.view[i] !== " ") return null;
+    const [before, after] = this.runSides(j, end);
+    if ((isBraille(before) && isBraille(after)) || (isWordChar(before) && isWordChar(after))) return end;
+    return null;
   }
 
   // True if raw[j] is a space that follows another one in a run of blanks that
@@ -509,6 +589,32 @@ export class Walk {
     if (!(lo < j && hi - lo <= BLANK_RUN)) return false;
     for (let k = lo; k < hi; k++) if (raw[k] !== " ") return false;
     return true;
+  }
+
+  // Whether the walk got past view[pos] before it ended. False means the raw text does not say where
+  // that character came from (engine.py _RawAlign.covers).
+  covers(pos) {
+    this.advance(pos + 1);
+    return this.i > pos;
+  }
+
+  mark() {
+    this.markI.push(this.i);
+    this.markJ.push(this.j);
+  }
+
+  // Raw index of the character at view[pos], or null. Only a character that is
+  // identical in both and sits before the first unexplained change has one:
+  // a mapped, expanded or decoded character has no single raw index. Port of
+  // engine.py _Walk.origin.
+  origin(pos) {
+    if (pos < 0 || pos >= this.limit) return null;
+    this.advance(pos + 1);
+    if (this.i <= pos) return null;
+    const k = lowerBound(this.changed, pos);
+    if (k < this.changed.length && this.changed[k] === pos) return null;
+    const m = upperBound(this.markI, pos) - 1;
+    return this.markJ[m] + (pos - this.markI[m]);
   }
 
   // True if view[lo:hi] reads as the same characters in the raw input.
@@ -555,6 +661,148 @@ export class RawAlign {
       this.walks.set(view, walk);
     }
     return walk.holds(lo, hi, spaced);
+  }
+
+  walkOf(view) {
+    let walk = this.walks.get(view);
+    if (walk === undefined) {
+      if (this.low === null) this.low = asciiLower(this.raw);
+      walk = new Walk(this.raw, this.low, view, this.record);
+      this.walks.set(view, walk);
+    }
+    return walk;
+  }
+
+  // Raw index of view[pos] (see Walk.origin), or null.
+  origin(view, pos) {
+    return this.walkOf(view).origin(pos);
+  }
+
+  covers(view, pos) {
+    return this.walkOf(view).covers(pos);
+  }
+}
+
+// Whether the raw text negates every copy of the opening of a match (port of engine.py _RawCopies).
+// Used for a match in a folded view that the raw text cannot place, because the walk of that view ended
+// before it (an unexplained change earlier in the text). The opening of the match, read as it
+// stands, is looked up in the raw text and in the view. The match is a copy of a raw occurrence, and is
+// negated, only when every occurrence in the raw text is negated there and the view holds no more
+// occurrences than the raw text has that the view still shows. Whether a raw copy is still shown is read
+// off the view itself: a mark that sits in front of each copy and passes through every step of the
+// pipeline unchanged says which words in the view came from that place, and the view built from the
+// marked text must be the view of the unmarked text with the marks taken out, or no copy is counted.
+// Spaces in the opening match any run of blank space in the raw text. The number of distinct openings
+// looked up is bounded; past it the view's own judgement stands.
+const PY_BLANK = /[\t-\r\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/g;
+export class RawCopies {
+  static OPEN = 48;       // characters of the match that are looked up
+  static DISTINCT = 8;    // distinct openings looked up per scan
+  static MARK = "\ue000"; // a private use character that no pipeline step changes
+
+  constructor(raw) {
+    this.raw = raw;
+    this.low = null;
+    this.flat = null;       // the lowered raw text with every run of blank space read as one space
+    this.flatAt = null;     // where each piece of it starts in the flat text ...
+    this.rawAt = null;      // ... and in the raw text
+    this.seen = new Map();
+  }
+
+  static count(low, key) {
+    let n = 0;
+    for (let at = low.indexOf(key); at !== -1; at = low.indexOf(key, at + 1)) n++;
+    return n;
+  }
+
+  collapsed() {
+    if (this.flat === null) {
+      const low = this.low;
+      const pieces = [], flatAt = [], rawAt = [];
+      let size = 0, last = 0;
+      PY_BLANK.lastIndex = 0;
+      for (let m; (m = PY_BLANK.exec(low)) !== null;) {
+        if (m.index > last) {
+          pieces.push(low.slice(last, m.index));
+          flatAt.push(size);
+          rawAt.push(last);
+          size += m.index - last;
+        }
+        pieces.push(" ");
+        flatAt.push(size);
+        rawAt.push(m.index);
+        size += 1;
+        last = m.index + m[0].length;
+      }
+      if (last < low.length) {
+        pieces.push(low.slice(last));
+        flatAt.push(size);
+        rawAt.push(last);
+      }
+      this.flat = pieces.join("");
+      this.flatAt = flatAt;
+      this.rawAt = rawAt;
+    }
+    return this.flat;
+  }
+
+  // Where the opening starts in the raw text, a space in it standing for any run of blank space.
+  copies(key) {
+    const flat = this.collapsed();
+    const want = key.replace(PY_BLANK, " ");
+    const found = [];
+    const starts = this.flatAt, last = starts.length - 1;
+    let k = 0;
+    for (let at = flat.indexOf(want); at !== -1; at = flat.indexOf(want, at + want.length)) {
+      while (k < last && starts[k + 1] <= at) k++;
+      found.push(this.rawAt[k] + at - starts[k]);
+    }
+    return found;
+  }
+
+  // `view` is a view of the raw text, its plain text ends at `plainEnd`, and `build(text)` is the function
+  // that built it from the raw text. `id` tells apart the views of one scan.
+  negated(id, view, plainEnd, opening, build) {
+    const key = asciiLower(opening);
+    const token = id + "\u0000" + key;
+    const known = this.seen.get(token);
+    if (known !== undefined) return known;
+    if (!key || this.seen.size >= RawCopies.DISTINCT) return false;
+    if (this.low === null) this.low = asciiLower(this.raw);
+    let verdict = false;
+    const copies = this.copies(key);
+    if (copies.length && !this.raw.includes(RawCopies.MARK)) {
+      verdict = copies.every((at) => checkNegation(this.raw, at, null, null));
+      if (verdict) {
+        const wanted = RawCopies.count(asciiLower(view.slice(0, plainEnd)), key);
+        verdict = wanted <= this.shown(build, view, plainEnd, copies, key);
+      }
+    }
+    this.seen.set(token, verdict);
+    return verdict;
+  }
+
+  // How many of the raw copies the view still shows as `key`, or 0 when the marks changed anything else
+  // in the view.
+  shown(build, view, plainEnd, copies, key) {
+    const mark = RawCopies.MARK, raw = this.raw;
+    const parts = [];
+    let last = 0;
+    for (const at of copies) {
+      parts.push(raw.slice(last, at), mark);
+      last = at;
+    }
+    parts.push(raw.slice(last));
+    const marked = build(parts.join(""));
+    if (marked.split(mark).join("") !== view) return 0;
+    const low = asciiLower(marked);
+    let shown = 0, seen = 0;
+    for (let at = low.indexOf(mark); at !== -1; at = low.indexOf(mark, at + 1)) {
+      // The mark's place in the unmarked view is its place here less the marks before it.
+      if (at - seen < plainEnd && low.startsWith(key, at + 1)) shown++;
+      seen++;
+    }
+    return shown;
   }
 }
 
