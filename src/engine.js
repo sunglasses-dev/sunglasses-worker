@@ -5,7 +5,7 @@ import { MECHANISMS } from "./mechanisms.js";
 import { PATTERNS } from "./patterns.js";
 import {
   CONTROL_CHARS, codePointLength, decodeShadowAscii, normalizeUnicode, normalizeWithLength, replaceHomoglyphs, replaceLookalikes,
-  keywordViewBetweenWords, spaceIgnorableBetweenWords, stripIgnorable, stripInvisible,
+  decodeLetterReferences, keywordViewBetweenWords, spaceIgnorableBetweenWords, stripIgnorable, stripInvisible,
   VIEW_SEP,
 } from "./preprocessor.js";
 import {
@@ -794,11 +794,15 @@ export function scan(text, channel = "message") {
   // is built once more with that run read as a space. A reading equal to the raw text or to an
   // earlier subject is read once.
   const wide = [];
+  const wideDecoded = new Set();
   let keywordView = null;
-  if (/[^\x00-\x7f]/.test(text) || CONTROL_CHARS.test(text)) {
-    const spaced = spaceIgnorableBetweenWords(text);
-    if (spaced !== null) keywordView = keywordViewBetweenWords(text, LINE_BREAK_CHARS);
-    const readings = [stripIgnorable(text)];
+  // An ASCII text that holds a numeric character reference gets these readings too: the reference that
+  // spells a letter or digit is decoded in them.
+  if (/[^\x00-\x7f]/.test(text) || text.includes("&#") || CONTROL_CHARS.test(text)) {
+    const decoded = decodeLetterReferences(text);
+    const spaced = spaceIgnorableBetweenWords(decoded);
+    if (spaced !== null) keywordView = keywordViewBetweenWords(decoded, LINE_BREAK_CHARS);
+    const readings = [stripIgnorable(decoded)];
     if (spaced !== null) readings.push(stripIgnorable(spaced));
     for (const stripped of readings) {
       let wideFolded = replaceLookalikes(normalizeUnicode(stripped));
@@ -810,6 +814,9 @@ export function scan(text, channel = "message") {
       for (const view of [wideFolded, wideCompact]) {
         if (view === null || view === text || view === folded || view === compact || wide.includes(view)) continue;
         wide.push(view);
+        // A hit made of decoded characters is not a copy of what the raw text says at that place, so a
+        // cue near it in the raw text does not govern it: these readings are read against the raw input.
+        if (decoded !== text) wideDecoded.add(view);
       }
     }
   }
@@ -915,7 +922,7 @@ export function scan(text, channel = "message") {
     if (shadowFolded !== null) subjects.push([shadowFolded, "folded"]);
     if (folded !== null) subjects.push([folded, "folded"]);
     if (compact !== null) subjects.push([compact, "compact"]);
-    for (const view of wide) subjects.push([view, "wide"]);
+    for (const view of wide) subjects.push([view, wideDecoded.has(view) ? "decoded" : "wide"]);
     if (pattern.match_on === "normalized") subjects.push([normalized, "normalized"]);
     let heldHit = null;
     let decided = false;
