@@ -72,6 +72,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # The runtime under test is the one package-lock.json names (wrangler 4.131.1 = workerd 1.20260911.1), never
+      # whatever npx would fetch that day: the probes below run `npx --no-install wrangler`, so a missing install fails.
+      - name: Install the pinned wrangler
+        run: npm ci
       # The three questions only the serving runtime can answer: modifier-group
       # regexes construct, an unknown channel fails closed, an alias channel
       # reaches the canonical pattern set. Node-side gates cannot see any of it.
