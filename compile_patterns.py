@@ -166,7 +166,7 @@ def dot_to_not_newline(src: str) -> str:
     return "".join(out)
 
 
-def convert(py_regex: str):
+def convert(py_regex: str, guard: bool = False):
     """Convert one Python regex to (js_source, js_flags). Raises ValueError on constructs
     we don't support."""
     src = py_regex
@@ -244,7 +244,7 @@ def convert(py_regex: str):
     src = _strip_forbidden_identity_escapes(src)
     src = _widen_dotless_i(src)
     src = _python_whitespace(src)
-    src = _python_word_class(src)
+    src = _python_word_class(src, guard)
     # Engine always scans case-insensitively (engine.py re.IGNORECASE).
     flags.add("i")
     flags.add("u")
@@ -612,41 +612,87 @@ WORD_NON_BOUNDARY = ("(?:(?<=[" + WORD_CLASS + "])(?=[" + WORD_CLASS + "])"
 
 
 # THE NARROW BOUNDARY. The full lookaround over WORD_CLASS runs V8 out of memory
-# (below), but the boundary only costs a FINDING where a letter the rule itself
-# matches sits at the edge, and the only non-ASCII letters an ASCII rule letter
-# matches under IGNORECASE are U+0130, U+0131, U+017F and U+212A. `\w` under
-# `iu` already holds the last two, so `[\w\u0130\u0131]` is the boundary that
-# makes those words start and end where Python says they do. Every other
-# non-ASCII letter keeps the ASCII boundary, which only ever adds a match
-# Python would not make, and stays disclosed.
+# (below), so a boundary outside a guard is built from the ASCII word class and two small additions.
+# The letters an ASCII rule letter matches under IGNORECASE are U+0130, U+0131,
+# U+017F and U+212A. `\w` under `iu` already holds the last two, so
+# `[\w\u0130\u0131]` is the class that makes those words start and end where
+# Python says they do. A letter outside that class and outside ASCII can sit at
+# a boundary Python reads and this class does not (a rule ends in `//`, the text
+# goes on with a letter), so a boundary is also read where one side is a
+# character outside ASCII and the other is not in the class. That reads a boundary
+# in every place Python reads one, and in some places beside a non-ASCII
+# character where Python reads none: an extra match, and a match wherever Python reads one.
 EDGE_CLASS = "\\w\u0130\u0131"
-EDGE_BOUNDARY = ("(?:(?<=[" + EDGE_CLASS + "])(?![" + EDGE_CLASS + "])"
-                 "|(?<![" + EDGE_CLASS + "])(?=[" + EDGE_CLASS + "]))")
-EDGE_NON_BOUNDARY = ("(?:(?<=[" + EDGE_CLASS + "])(?=[" + EDGE_CLASS + "])"
-                     "|(?<![" + EDGE_CLASS + "])(?![" + EDGE_CLASS + "]))")
+EDGE_OR_OUTSIDE = "[" + EDGE_CLASS + "\\u0080-\\u{10FFFF}]"
+_EDGE = "[" + EDGE_CLASS + "]"
+EDGE_BOUNDARY = ("(?:(?<=" + EDGE_OR_OUTSIDE + ")(?!" + _EDGE + ")"
+                 "|(?<!" + _EDGE + ")(?=" + EDGE_OR_OUTSIDE + "))")
+EDGE_NON_BOUNDARY = ("(?:(?<=" + EDGE_OR_OUTSIDE + ")(?=" + EDGE_OR_OUTSIDE + ")"
+                     "|(?<!" + _EDGE + ")(?!" + _EDGE + "))")
 
 
-def _python_word_class(src: str) -> str:
+# THE EXACT WORD CLASS. Under the `i` flag a class that holds letters also holds every character whose case folding
+# lands on a letter, so `[\\p{L}\\p{N}_]` accepts U+0345 (it folds to a Greek letter) and Python's `\\w` does not.
+# The class is read with case sensitivity off for the class alone, `(?-i:...)`, which holds exactly the letters,
+# digits and the underscore. It is written where the wider class would lower an answer, and the wider class stays
+# where it can only add a match. A word class inside a negative lookaround is exact, since a wider class there
+# holds a guard on a text the pip scanner does not hold it on. A negated word class anywhere else is exact, since
+# a wider class there refuses a character the pip scanner accepts. A positive word class anywhere else stays the
+# wider one, which can match one more character and never one fewer.
+WORD_SET = "(?-i:[" + WORD_CLASS + "])"
+WORD_NOT = "(?-i:[^" + WORD_CLASS + "])"
+
+# THE EXACT BOUNDARY, used where a boundary decides whether a negative lookaround holds. A boundary of the ASCII
+# class alone sees an edge where a letter outside ASCII touches the word, so the guard holds on a text the pip scanner
+# reads as one longer word and does not hold on. Inside a negative lookaround the boundary is the Unicode one;
+# everywhere else it stays the narrow one above, which can only add a match.
+EXACT_BOUNDARY = ("(?:(?<=" + WORD_SET + ")(?!" + WORD_SET + ")|(?<!" + WORD_SET + ")(?=" + WORD_SET + "))")
+EXACT_NON_BOUNDARY = ("(?:(?<=" + WORD_SET + ")(?=" + WORD_SET + ")|(?<!" + WORD_SET + ")(?!" + WORD_SET + "))")
+
+
+def _class_word_alternation(body: str, exact: bool) -> str:
+    """A character class whose body holds `\\w`, as the same set written with the word class."""
+    negated = body.startswith("^")
+    rest = body[1:] if negated else body
+    if not exact:
+        # the shorthand is spelled out in place, so a range beside it keeps its meaning
+        return "[" + ("^" if negated else "") + rest.replace("\\w", WORD_CLASS) + "]"
+    others = rest.replace("\\w", "")
+    if others.startswith("^"):
+        others = "\\" + others
+    if not others:
+        return WORD_NOT if negated else WORD_SET
+    if negated:
+        return "(?:(?=" + WORD_NOT + ")[^" + others + "])"
+    return "(?:" + WORD_SET + "|[" + others + "])"
+
+
+def _python_word_class(src: str, guard_root: bool = False) -> str:
     """Give the word shorthands Python notion of a word character."""
     keep = [(a, b) for a, b in _class_spans(src)
             if _is_any_char_class(src[a + 1:b])]
     inside_any = lambda idx: any(a <= idx <= b for a, b in keep)
+    spans = {a: b for a, b in _class_spans(src)}
+    keep_starts = {a for a, _ in keep}
     out = []
-    in_class = False
+    # one entry per open group: True for a negative lookaround. A guard is the inside of one, split out of the
+    # rule, so it starts inside.
+    frames = [True] if guard_root else []
     i = 0
     while i < len(src):
         ch = src[i]
+        guard = sum(frames) % 2 == 1      # inside an odd number of negative lookarounds
         if ch == "\\" and i + 1 < len(src) and not inside_any(i):
             nxt = src[i + 1]
             if nxt == "w":
-                out.append(WORD_CLASS if in_class else "[" + WORD_CLASS + "]")
+                out.append(WORD_SET if guard else "[" + WORD_CLASS + "]")
                 i += 2
                 continue
-            if nxt == "W" and not in_class:
-                out.append("[^" + WORD_CLASS + "]")
+            if nxt == "W":
+                out.append("[^" + WORD_CLASS + "]" if guard else WORD_NOT)
                 i += 2
                 continue
-            # `\b` AND `\B` ARE LEFT ALONE, and this is a constraint rather
+            # `\b` AND `\B` outside a negative lookaround are the narrow boundary, and this is a constraint rather
             # than a repair. The faithful rewrite is a pair of lookarounds over
             # the word class, and substituting it for every boundary in 1,546
             # patterns made V8's regex compiler run the heap out of memory
@@ -660,17 +706,34 @@ def _python_word_class(src: str) -> str:
             # is exactly that shape. The narrow boundary above closes
             # it for the letters a rule can match; outside a class only, where
             # `\b` is a boundary and not a backspace.
-            if nxt in "bB" and not in_class:
-                out.append(EDGE_BOUNDARY if nxt == "b" else EDGE_NON_BOUNDARY)
+            if nxt in "bB":
+                if nxt == "b":
+                    out.append(EXACT_BOUNDARY if guard else EDGE_BOUNDARY)
+                else:
+                    out.append(EXACT_NON_BOUNDARY if guard else EDGE_NON_BOUNDARY)
                 i += 2
                 continue
             out.append(src[i:i + 2])
             i += 2
             continue
-        if ch == "[":
-            in_class = True
-        elif ch == "]":
-            in_class = False
+        if ch == "\\":
+            out.append(src[i:i + 2])
+            i += 2
+            continue
+        if ch == "[" and i in spans:
+            end = spans[i]
+            body = src[i + 1:end]
+            if i not in keep_starts and "\\w" in body:
+                negated = body.startswith("^")
+                out.append(_class_word_alternation(body, exact=(not guard) if negated else guard))
+            else:
+                out.append(src[i:end + 1])
+            i = end + 1
+            continue
+        if ch == "(":
+            frames.append(src.startswith("(?!", i) or src.startswith("(?<!", i))
+        elif ch == ")" and frames:
+            frames.pop()
         out.append(ch)
         i += 1
     return "".join(out)
@@ -867,8 +930,13 @@ def main():
                     core_src, core_fl = convert(core_py)
                     guards_js = []
                     for g in guards_py:
-                        g_src, g_fl = convert(g)
-                        guards_js.append({"source": g_src, "flags": g_fl})
+                        g_src, g_fl = convert(g, guard=True)
+                        l_src, l_fl = convert(g)
+                        if l_src == g_src and l_fl == g_fl:
+                            guards_js.append({"source": g_src, "flags": g_fl})
+                        else:
+                            assert l_fl == g_fl, p["id"]
+                            guards_js.append({"source": l_src, "flags": l_fl, "exact": g_src})
                 except ValueError as e:
                     failed.append({"id": p["id"], "reason": f"guard/core split: {e}", "regex": rx[:120]})
                     ok = False
@@ -952,6 +1020,9 @@ def main():
             for g in r.get("guards", []):
                 flat.append({"id": entry["id"], "source": g["source"], "flags": g["flags"]})
                 owners.append((idx, ri))
+                if g.get("exact") is not None:
+                    flat.append({"id": entry["id"], "source": g["exact"], "flags": g["flags"]})
+                    owners.append((idx, ri))
     errors = node_validate(flat) if flat else []
     bad_idx = set()
     for (idx, ri), err in zip(owners, errors):
