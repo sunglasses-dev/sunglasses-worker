@@ -3,8 +3,9 @@
 // negation window, worst-severity decision.
 import { MECHANISMS } from "./mechanisms.js";
 import { FLOOR_ALWAYS, PATTERNS } from "./patterns.js";
+import { utf7View } from "./utf7.js";
 import {
-  CONTROL_CHARS, codePointLength, decodeShadowAscii, normalizeUnicode, normalizeWithLength, replaceHomoglyphs, replaceLookalikes,
+  CONTROL_CHARS, codePointLength, decodeHexEscapes, decodeHtmlEntities, decodeShadowAscii, decodeUrlEncoding, normalizeUnicode, normalizeWithLength, replaceHomoglyphs, replaceLookalikes,
   decodeLetterReferences, keywordViewBetweenWords, spaceIgnorableBetweenWords, stripIgnorable, stripInvisible,
   VIEW_SEP, withPythonDigits,
 } from "./preprocessor.js";
@@ -858,7 +859,7 @@ function held(pattern, matchedText, cover) {
   return makeFinding(pattern, matchedText, cover === "negation", cover === "framing");
 }
 
-export function scan(text, channel = "message") {
+function scanText(text, channel) {
   // Unknown channels fail CLOSED (throw) instead of silently scanning against
   // nothing and returning a clean allow — mirrors engine.py's ValueError. The
   // caller (index.js) turns this into a 400; it must never become an "allow".
@@ -1313,6 +1314,48 @@ export function scan(text, channel = "message") {
     findings: kept,
     channel,
     latency_ms: elapsed > 0 ? elapsed : null,
+  };
+}
+
+// UTF-7 runs are read by a model that is asked to decode them and by no step of the pipeline, so the text is
+// scanned a second time with each readable run decoded. The first scan is kept whole and the second one only adds to
+// it, so a text that is stopped without this step is stopped with it. One level: the view is not decoded again.
+// The view is built on the text after the pipeline's own character, entity and percent steps (unwrapped), so a plus or
+// a letter of the run written as `&#43;`, `%2B`, a fullwidth letter or with an invisible character in it is found too.
+// Port of engine.py scan / _Walk._unwrapped / _with_view_result.
+const MAX_VIEW_CODE_POINTS = MAX_FOLDED_VIEW;
+const NEEDS_VIEW = /[^\x00-\x7f]|[+&%\\]/;
+function unwrapped(text) {
+  let t = replaceHomoglyphs(normalizeUnicode(stripInvisible(text)));
+  for (let round = 0; round < 3; round++) {
+    const before = t;
+    t = decodeHexEscapes(decodeUrlEncoding(decodeHtmlEntities(t)));
+    if (t === before) break;
+  }
+  return t;
+}
+const DECISION_RANK = { allow: 0, allow_redacted: 1, quarantine: 2, block: 3 };
+export function scan(text, channel = "message") {
+  const result = scanText(text, channel);
+  // Plain ASCII with no way to write a plus has no view.
+  if (!NEEDS_VIEW.test(text)) return result;
+  const cut = text.length > MAX_VIEW_CODE_POINTS ? text.slice(0, cpFwd(text, 0, MAX_VIEW_CODE_POINTS)) : text;
+  let view = utf7View(unwrapped(cut));
+  if (view === null) return result;
+  if (view.length > MAX_VIEW_CODE_POINTS) view = view.slice(0, cpFwd(view, 0, MAX_VIEW_CODE_POINTS));
+  let extra;
+  try {
+    extra = scanText(view, channel);
+  } catch {
+    return result;   // the first scan stands
+  }
+  const seen = new Set(result.findings.map((f) => f.id));
+  const added = extra.findings.filter((f) => !seen.has(f.id)).map((f) => ({ ...f, view: "utf7" }));
+  const worse = (DECISION_RANK[extra.decision] ?? 3) > (DECISION_RANK[result.decision] ?? 3);
+  return {
+    ...result,
+    decision: worse ? extra.decision : result.decision,
+    findings: result.findings.concat(added),
   };
 }
 
