@@ -7,6 +7,7 @@
 
 import { RegistryRedirectInShell } from "./registry_redirect.js";
 import { HookFetchAndRun } from "./hook_fetch.js";
+import { EnvironmentDumpedByPython } from "./environment_dump.js";
 
 // ---------------------------------------------------------------------------------------------- shared helpers
 
@@ -287,7 +288,7 @@ const SettingsWithoutPrompts = {
 
 // ------------------------------------------------------------------------------------------------------ running
 
-export const VALIDATORS = [HookFetchAndRun, SettingsWithoutPrompts, RegistryRedirectInShell];
+export const VALIDATORS = [HookFetchAndRun, SettingsWithoutPrompts, EnvironmentDumpedByPython, RegistryRedirectInShell];
 
 // The findings of every validator that reads one of the channels. A validator that throws does not take the scan
 // down: the findings already made stand.
