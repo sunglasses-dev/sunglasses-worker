@@ -12,7 +12,7 @@ import { HTML5_ENTITIES } from "./html5_entities.js";
 // difference can touch, never the count it is known to change.
 export const LIMITATIONS = [
   "Scope. This is a hosted approximation of the pip scanner, which is the product of record. The engine, wide, channel, policy and counterexample parity suites read 0 differences on the corpora they run. That is not output equality, and the classes listed here are the ones that have been observed rather than a proof that no other exists",
-  "Word boundaries. 972 of 1,576 rules use a word boundary in a core or a guard. Where a non-ASCII letter sits next to a boundary, a result can differ from the pip scanner's. This is the reach of the difference rather than the count it changes",
+  "Word boundaries. 958 of 1,576 rules use a word boundary in a core or a guard. Where a non-ASCII letter sits next to a boundary, a result can differ from the pip scanner's. This is the reach of the difference rather than the count it changes",
   "Word class membership. The word class written into the compiled rules is the same form as the pip scanner's and not the same membership, so a result can differ in either direction. Reach is 392 rules across 406 compiled entries, being 386 rules in 397 entries plus 6 mechanism rules in 9 entries",
   "ASCII letter ranges. Closed. A character class range under case-insensitive matching matches the set the pip scanner matches, in a negated class as well. Twelve classes enumerated against every scalar agree",
   "Decimal digit shorthands. Closed. A digit shorthand matches the same code points as the pip scanner's, read against every code point and a corpus of 1,911 texts. Reach is 38 rules",

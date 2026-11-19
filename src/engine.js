@@ -338,8 +338,7 @@ function evalRegex(entry, text, folded, pages, start = 0, tripped = null, key = 
   if (entry.mode === "leadin") return matchLeadin(entry, text, start);
   if (entry.mode === "guarded") {
     for (const g of entry.guards) {
-      g.lastIndex = 0;
-      if (g.exec(text)) {
+      if (guardHolds(g, text)) {
         if (tripped !== null) tripped.add(key);
         return null;
       }
@@ -393,6 +392,95 @@ export const CHANNEL_ALIASES = {
 // ── Index build (once per isolate) ──────────────────────────────────────────
 const keywordToPatterns = new Map();
 export const DEAD_REGEX_IDS = [];  // regexes that failed to construct in THIS runtime
+// A regex that is built when it is first read. A source the runtime cannot build is recorded in DEAD_REGEX_IDS
+// (the compiler validated every source in its own Node, but an older V8 can refuse a construct, e.g. `(?i:` modifier
+// groups need Node 23+; CI asserts the list is empty in its runtime after buildAllRegexes()) and stands in as a
+// regex that never matches, which is what leaving the rule out was.
+const NEVER_MATCHES = /(?!)/y;
+const NEVER_MATCHES_GLOBAL = /(?!)/g;
+const ALWAYS_MATCHES = /(?:)/y;
+function noteDead(id) {
+  if (!DEAD_REGEX_IDS.includes(id)) DEAD_REGEX_IDS.push(id);
+}
+function lazyProperty(entry, key, make) {
+  Object.defineProperty(entry, key, {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const value = make();
+      Object.defineProperty(entry, key, { value, writable: true, configurable: true, enumerable: true });
+      return value;
+    },
+  });
+}
+function lazyRegex(entry, key, id, source, flags, fallback) {
+  lazyProperty(entry, key, () => {
+    try {
+      return new RegExp(withPythonDigits(source), flags);
+    } catch {
+      noteDead(id);
+      return fallback;
+    }
+  });
+}
+function lazyGuards(entry, id, guards) {
+  lazyProperty(entry, "guards", () => {
+    try {
+      return guards.map((g) => {
+        const rx = new RegExp(withPythonDigits(g.source), g.flags + "y");
+        // `exact` is the same guard read with the exact word class. The first form is never narrower, so a text it
+        // does not hold on needs nothing more (see guardHolds).
+        if (g.exact !== undefined) rx.exactSource = withPythonDigits(g.exact);
+        rx.exactFlags = g.flags + "y";
+        return rx;
+      });
+    } catch {
+      noteDead(id);
+      return [ALWAYS_MATCHES];   // a guard that always holds keeps the rule out, as a rule left out of the build is
+    }
+  });
+}
+// The exact forms are built when a text needs one and kept in a small ring, so a long run of different guards
+// holds a bounded number of them.
+const EXACT_GUARDS = [];
+const EXACT_GUARD_RING = 64;
+// The two forms of a guard read a text alike unless it holds a letter or digit outside ASCII.
+const NON_ASCII_TEXT = /(?![\x00-\x7f])[\p{L}\p{N}]/u;
+// One answer per text, since every guard of a scan asks it of the same text.
+let outsideLetterText = null;
+let outsideLetterAnswer = false;
+function hasOutsideLetter(text) {
+  if (text !== outsideLetterText) {
+    outsideLetterAnswer = NON_ASCII_TEXT.test(text);
+    outsideLetterText = text;
+  }
+  return outsideLetterAnswer;
+}
+function guardHolds(g, text) {
+  g.lastIndex = 0;
+  if (g.exec(text) === null) return false;
+  if (g.exactSource === undefined || !hasOutsideLetter(text)) return true;
+  if (g.exactRx === undefined) {
+    try {
+      g.exactRx = new RegExp(g.exactSource, g.exactFlags);
+    } catch {
+      return true;   // a guard that cannot be built holds, as a rule left out never fired
+    }
+    EXACT_GUARDS.push(g);
+    if (EXACT_GUARDS.length > EXACT_GUARD_RING) EXACT_GUARDS.shift().exactRx = undefined;
+  }
+  g.exactRx.lastIndex = 0;
+  return g.exactRx.exec(text) !== null;
+}
+export function buildAllRegexes() {
+  for (const { compiled } of regexPatterns) {
+    for (const entry of compiled) {
+      for (const key of ["rx", "guards", "rxGlobal", "rxSticky", "rxTwin"]) void entry[key];
+    }
+  }
+}
+
+
 const regexPatterns = [];
 export const LEADIN_ENTRIES = [];  // [{ id, entry }] for the lead-in mode; the parity test reads them
 const declaredChannels = new Set();
@@ -411,48 +499,40 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
   if (p.regex && p.regex.length) {
     const compiled = [];
     for (const r of p.regex) {
-      try {
-        // Predicates (windowed/guarded cores + doc-wide guards) run at position
-        // 0 via sticky flag (mirrors Python .match) — the ReDoS guard from
-        // engine.py. Plain regexes keep ordinary exec (Python .search).
-        const sticky = r.mode !== "plain" && r.mode !== "anchored" && r.mode !== "leadin";
-        const entry = {
-          mode: r.mode,
-          rx: new RegExp(withPythonDigits(r.source), r.flags + (sticky ? "y" : "")),
-          guards: (r.guards || []).map((g) => new RegExp(withPythonDigits(g.source), g.flags + "y")),
-          // CARRIED THROUGH. The compiler derives this and the index dropped it,
-          // so every entry arrived with no requirement and the prefilter skipped
-          // nothing at all. Silent, because a prefilter that never fires is
-          // indistinguishable from one that has nothing to skip.
-          requires: r.requires,
-        };
-        if (r.mode === "anchored") {
-          // TWO compiled forms, because the Python lane makes two different
-          // calls: a bounded `search` and, on a candidate, an anchored `match`
-          // against the whole document. `g` gives the first a movable start,
-          // `y` gives the second Python's `.match(text, pos)` exactly.
-          entry.rxGlobal = new RegExp(withPythonDigits(r.source), r.flags + "g");
-          entry.rxSticky = new RegExp(withPythonDigits(r.source), r.flags + "y");
-          entry.anchors = r.anchors || [];
-          entry.span = Math.max(r.span || 1, 1);
-        }
-        if (r.mode === "leadin") {
-          // The rule's own regex, sticky, for the recovered start (Python's
-          // `.match(text, pos)`); the twin, global, to find a candidate.
-          entry.rxSticky = new RegExp(withPythonDigits(r.source), r.flags + "y");
-          entry.rxTwin = new RegExp(withPythonDigits(r.twin), r.twin_flags + "g");
-          LEADIN_ENTRIES.push({ id: p.id, entry });
-        }
-        compiled.push(entry);
-      } catch {
-        // Validated at compile time — but only for the Node that ran the
-        // compiler. A runtime with an older V8 (e.g. `(?i:` modifier groups
-        // need Node 23+) can still fail here, silently killing the pattern
-        // (CI caught GLS-SC-002/003 dead on Node 22, 2026-08-28). Record it
-        // so CI can assert the count is zero in ITS runtime; the worker
-        // itself stays fail-open per pattern.
-        DEAD_REGEX_IDS.push(p.id);
+      // Predicates (windowed/guarded cores + doc-wide guards) run at position
+      // 0 via sticky flag (mirrors Python .match) — the ReDoS guard from
+      // engine.py. Plain regexes keep ordinary exec (Python .search).
+      const sticky = r.mode !== "plain" && r.mode !== "anchored" && r.mode !== "leadin";
+      const entry = {
+        mode: r.mode,
+        // CARRIED THROUGH. The compiler derives this and the index dropped it,
+        // so every entry arrived with no requirement and the prefilter skipped
+        // nothing at all. The loss is silent, because a prefilter that skips
+        // nothing looks the same as one that has nothing to skip.
+        requires: r.requires,
+      };
+      // Each regex is built the first time a scan reads it. A scan reads the rules its keywords and required words
+      // select, so a runtime that serves one text builds those and no others. buildAllRegexes() builds the rest.
+      lazyRegex(entry, "rx", p.id, r.source, r.flags + (sticky ? "y" : ""), NEVER_MATCHES);
+      lazyGuards(entry, p.id, r.guards || []);
+      if (r.mode === "anchored") {
+        // TWO compiled forms, because the Python lane makes two different
+        // calls: a bounded `search` and, on a candidate, an anchored `match`
+        // against the whole document. `g` gives the first a movable start,
+        // `y` gives the second Python's `.match(text, pos)` exactly.
+        lazyRegex(entry, "rxGlobal", p.id, r.source, r.flags + "g", NEVER_MATCHES_GLOBAL);
+        lazyRegex(entry, "rxSticky", p.id, r.source, r.flags + "y", NEVER_MATCHES);
+        entry.anchors = r.anchors || [];
+        entry.span = Math.max(r.span || 1, 1);
       }
+      if (r.mode === "leadin") {
+        // The rule's own regex, sticky, for the recovered start (Python's
+        // `.match(text, pos)`); the twin, global, to find a candidate.
+        lazyRegex(entry, "rxSticky", p.id, r.source, r.flags + "y", NEVER_MATCHES);
+        lazyRegex(entry, "rxTwin", p.id, r.twin, r.twin_flags + "g", NEVER_MATCHES_GLOBAL);
+        LEADIN_ENTRIES.push({ id: p.id, entry });
+      }
+      compiled.push(entry);
     }
     if (compiled.length) regexPatterns.push({ pattern: p, compiled });
   }

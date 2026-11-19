@@ -32,7 +32,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent
 # Opens both EDGE_BOUNDARY and EDGE_NON_BOUNDARY in compile_patterns.py.
-EDGE_OPEN = "(?<=[\\w\u0130\u0131])"
+EDGE_OPEN = "(?<=[\\w\u0130\u0131\\u0080-\\u{10FFFF}])"
 
 DUMP = """
 const p = await import("%s/src/patterns.js");
