@@ -1,6 +1,7 @@
 // Sunglasses Worker — engine port of sunglasses/engine.py scan() (v0.4.9).
 // Same lanes, same order: keyword index on NORMALIZED text, regexes on RAW text,
 // negation window, worst-severity decision.
+import { runValidators } from "./validators.js";
 import { MECHANISMS } from "./mechanisms.js";
 import { FLOOR_ALWAYS, PATTERNS } from "./patterns.js";
 import { utf7View } from "./utf7.js";
@@ -1377,6 +1378,12 @@ function scanText(text, channel) {
         (carrierMax.get(f.category) ?? -1) < (SEVERITY_ORDER[f.severity] ?? 0)
     );
   }
+
+  // Structural validators read the raw text cut at the scan limit, not a normalized view: a config is literal.
+  // Port of engine.py step 3c.
+  const rawCut = text.length > MAX_FOLDED_VIEW ? text.slice(0, cpFwd(text, 0, MAX_FOLDED_VIEW)) : text;
+  const structural = runValidators(rawCut, aliasChannel === channel ? [channel] : [channel, aliasChannel]);
+  if (structural.length) kept = kept.concat(structural);
 
   // Decision = worst finding severity.
   let decision = "allow";
