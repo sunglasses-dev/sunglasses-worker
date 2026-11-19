@@ -17,6 +17,7 @@ function answer(validator, text) {
 for (const [id, label] of [
   ["GLS-STRUCT-001", "hook commands"],
   ["GLS-STRUCT-004", "settings files"],
+  ["GLS-STRUCT-005", "python programs"],
   ["GLS-STRUCT-006", "shell scripts"],
 ]) {
   test(`${label} are read as the scanner reads them`, () => {
@@ -29,7 +30,7 @@ for (const [id, label] of [
 }
 
 test("a scan carries the finding of a reader, with its evidence, on the channels it reads", () => {
-  for (const [id, channel] of [["GLS-STRUCT-001", "file"], ["GLS-STRUCT-004", "file"], ["GLS-STRUCT-006", "code"]]) {
+  for (const [id, channel] of [["GLS-STRUCT-001", "file"], ["GLS-STRUCT-004", "file"], ["GLS-STRUCT-005", "code"], ["GLS-STRUCT-006", "code"]]) {
     const [text, expected] = ROWS[id].find(([, e]) => e.length);
     const result = scan(text, channel);
     const found = result.findings.find((f) => f.id === id);

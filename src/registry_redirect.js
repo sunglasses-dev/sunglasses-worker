@@ -570,7 +570,7 @@ function bareDash(text, at) {
 
 // The bodies of the fenced blocks whose tag matches `wanted`; one pass over the lines. `starts`, when given, receives
 // the 1-based line of each body's first line.
-function fencedBlocks(text, wanted, starts = null) {
+export function fencedBlocks(text, wanted, starts = null) {
   const blocks = [];
   let body = null;
   let fence = null;
