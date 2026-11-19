@@ -81,3 +81,26 @@ jobs:
         run: python3 workerd_probe.py
       - name: Worker route tests (request body cap, non object bodies)
         run: node --test tests/*.test.mjs
+
+  # Every short text the pinned scanner stops, as written, is stopped at least as hard by the Worker. The pool is
+  # rebuilt from the scanner checkout on each run, so it follows the pin. A separate job: the scanner's Python
+  # reader runs on the interpreter the Worker's reader mirrors.
+  stopped-text-parity:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Check out the pinned scanner
+        run: |
+          PIN="v$(grep -o 'PATTERNS_VERSION = "[^"]*"' src/patterns.js | cut -d'"' -f2)"
+          git clone --depth 1 --branch "${PIN}" https://github.com/sunglasses-dev/sunglasses.git /tmp/scanner
+      - name: Stopped texts decide the same or higher in the Worker
+        env:
+          SUNGLASSES_SRC: /tmp/scanner
+          SUNGLASSES_TESTS: /tmp/scanner/tests
+        run: python3 release_stopped_parity.py
