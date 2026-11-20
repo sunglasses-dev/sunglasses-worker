@@ -1,7 +1,9 @@
 #!/bin/bash
 # edge_unicode_probe.sh - ask the Cloudflare edge which Unicode it reads, and compare with the pinned tables.
 # Run at every wrangler bump and once a week. Prints the report; exit 0 = the edge differs from the tables only by
-# code points the tables call unassigned (the worker does not depend on those); exit 1 = a code point the tables hold that the edge does not; exit 2 = no answer.
+# code points the tables call unassigned (the worker does not depend on those) and its lower case and NFKC digests equal the pinned
+# interpreter's on every block; exit 1 = a code point the tables hold that the edge does not, or a block whose lower case / NFKC digest differs
+# (report.lower_nfkc.differ); exit 2 = no answer.
 set -u
 cd "$(dirname "$0")/edge_unicode_probe" || exit 2
 PORT=${PORT:-8791}
@@ -20,4 +22,6 @@ for (const [n, c] of Object.entries(r.classes)) {
   // Any code point the TABLE has and the edge lacks, except in C and Cn (now assigned there), is a real difference.
   if (c.table_only > 0 && n !== "C" && n !== "Cn") bad++;
 }
+// lower case and NFKC: one differing block is a real difference (the edge answers an assigned character as another Unicode version does)
+if (!r.lower_nfkc || r.lower_nfkc.differ.length > 0) bad++;
 process.exit(bad ? 1 : 0);'
