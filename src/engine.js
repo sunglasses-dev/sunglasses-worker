@@ -354,12 +354,9 @@ function evalRegex(entry, text, folded, pages, start = 0, tripped = null, key = 
     return matchWindowedEdges(entry.rx, text);
   }
   if (start) {
-    if (entry.rxFrom === undefined) {
-      const flags = entry.rx.flags.includes("g") ? entry.rx.flags : entry.rx.flags + "g";
-      entry.rxFrom = new RegExp(entry.rx.source, flags);
-    }
-    entry.rxFrom.lastIndex = start;
-    return entry.rxFrom.exec(text);
+    const from = entry.rxFrom;
+    from.lastIndex = start;
+    return from.exec(text);
   }
   entry.rx.lastIndex = 0;
   return entry.rx.exec(text);
@@ -404,41 +401,95 @@ const ALWAYS_MATCHES = /(?:)/y;
 function noteDead(id) {
   if (!DEAD_REGEX_IDS.includes(id)) DEAD_REGEX_IDS.push(id);
 }
-function lazyProperty(entry, key, make) {
-  Object.defineProperty(entry, key, {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const value = make();
-      Object.defineProperty(entry, key, { value, writable: true, configurable: true, enumerable: true });
-      return value;
-    },
-  });
+// ── THE STORE OF COMPILED RULE REGEXES ──────────────────────────────────────────────────────────────────────────────
+// Every compiled regex of a rule (the rule, its guards with their exact forms, the copy that starts at an offset, the
+// floor copy) is held through this one store. Each is built when a scan first reads it. The store holds a size counted
+// in source characters; past it, the regex read longest ago is dropped and a later read builds it again. An answer is
+// the same whichever regexes the store holds.
+const STORE_BUDGET = 500_000;
+const store = { slots: new Map(), total: 0, budget: STORE_BUDGET, built: 0, left: 0 };
+function evictSlot(slot) {
+  store.slots.delete(slot);
+  store.total -= slot.weight;
+  store.left++;
+  const old = slot.value;
+  slot.value = undefined;
+  slot.live = false;
+  if (slot.onLeave !== undefined) slot.onLeave(old);
 }
+function readSlot(slot) {
+  if (slot.live) {
+    store.slots.delete(slot);   // read now: last to leave
+    store.slots.set(slot, true);
+    return slot.value;
+  }
+  const made = slot.make();
+  slot.value = made.value;
+  slot.weight = made.weight;
+  slot.live = true;
+  store.slots.set(slot, true);
+  store.total += slot.weight;
+  store.built++;
+  for (const old of store.slots.keys()) {
+    if (store.total <= store.budget || old === slot) break;
+    evictSlot(old);
+  }
+  return slot.value;
+}
+function lazySlot(entry, key, make, onLeave) {
+  const slot = { make, onLeave, live: false, value: undefined, weight: 0 };
+  Object.defineProperty(entry, key, { configurable: true, enumerable: true, get: () => readSlot(slot) });
+}
+// For tests and measures: the size (source characters), what the store holds now, and how often it built and let go.
+export function setRuleStoreBudget(chars = STORE_BUDGET) {
+  store.budget = chars;
+  for (const old of store.slots.keys()) {
+    if (store.total <= store.budget || store.slots.size <= 1) break;
+    evictSlot(old);
+  }
+}
+export const ruleStoreStats = () => ({ budget: store.budget, held: store.slots.size, chars: store.total, built: store.built, left: store.left });
 function lazyRegex(entry, key, id, source, flags, fallback) {
-  lazyProperty(entry, key, () => {
+  lazySlot(entry, key, () => {
     try {
-      return new RegExp(withPythonDigits(source), flags);
+      const text = withPythonDigits(source, flags);
+      return { value: new RegExp(text, flags), weight: text.length + 64 };
     } catch {
       noteDead(id);
-      return fallback;
+      return { value: fallback, weight: 64 };
     }
   });
 }
 function lazyGuards(entry, id, guards) {
-  lazyProperty(entry, "guards", () => {
+  lazySlot(entry, "guards", () => {
     try {
-      return guards.map((g) => {
-        const rx = new RegExp(withPythonDigits(g.source), g.flags + "y");
+      let weight = 64;
+      const built = guards.map((g) => {
+        const text = withPythonDigits(g.source);
+        const rx = new RegExp(text, g.flags + "y");
+        weight += text.length + 64;
         // `exact` is the same guard read with the exact word class. The first form is never narrower, so a text it
-        // does not hold on needs nothing more (see guardHolds).
-        if (g.exact !== undefined) rx.exactSource = withPythonDigits(g.exact);
+        // does not hold on needs nothing more (see guardHolds). The text stays with the guard while the guard is held.
+        if (g.exact !== undefined) {
+          rx.exactSource = withPythonDigits(g.exact);
+          weight += rx.exactSource.length;
+        }
         rx.exactFlags = g.flags + "y";
         return rx;
       });
+      return { value: built, weight };
     } catch {
       noteDead(id);
-      return [ALWAYS_MATCHES];   // a guard that always holds keeps the rule out, as a rule left out of the build is
+      return { value: [ALWAYS_MATCHES], weight: 64 };   // a guard that always holds keeps the rule out, as a rule left out of the build is
+    }
+  }, (left) => {
+    // a guard that leaves takes its exact form out of the ring too
+    for (const g of left) {
+      if (g.exactRx !== undefined) {
+        const at = EXACT_GUARDS.indexOf(g);
+        if (at >= 0) EXACT_GUARDS.splice(at, 1);
+        g.exactRx = undefined;
+      }
     }
   });
 }
@@ -517,6 +568,12 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
       // select, so a runtime that serves one text builds those and no others. buildAllRegexes() builds the rest.
       lazyRegex(entry, "rx", p.id, r.source, r.flags + (sticky ? "y" : ""), NEVER_MATCHES);
       lazyGuards(entry, p.id, r.guards || []);
+      // the same regex read from an offset (global), for the modes that ask for a match at or after `start`
+      lazySlot(entry, "rxFrom", () => {
+        const rx = entry.rx;
+        const flags = rx.flags.includes("g") ? rx.flags : rx.flags + "g";
+        return { value: new RegExp(rx.source, flags), weight: rx.source.length + 64 };
+      });
       if (r.mode === "anchored") {
         // TWO compiled forms, because the Python lane makes two different
         // calls: a bounded `search` and, on a candidate, an anchored `match`
@@ -548,7 +605,7 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
 // (the scanner's own code); the copies are built here, once per isolate, from that data.
 const FLOOR_SEVERITY = { critical: "medium", high: "medium" };
 const floorSource = new Map();   // id -> the rule carrying floor data
-const floorBuilt = new Map();    // id -> { pattern, compiled } once a scan needs the copy
+const floorSlots = new Map();    // id -> the store slot of { pattern, compiled }, once a scan needs the copy
 for (const p of PATTERNS) {
   if (p.floor && p.floor.regex && p.floor.regex.length) floorSource.set(p.id, p);
 }
@@ -580,11 +637,18 @@ function buildFloor(p) {
   return { pattern: twin, compiled };
 }
 function floorOf(pid) {
-  if (floorBuilt.has(pid)) return floorBuilt.get(pid);
   const p = floorSource.get(pid);
-  const built = p === undefined ? undefined : buildFloor(p);
-  floorBuilt.set(pid, built === null ? undefined : built);
-  return built === null ? undefined : built;
+  if (p === undefined) return undefined;
+  let holder = floorSlots.get(pid);
+  if (holder === undefined) {
+    holder = {};
+    lazySlot(holder, "floor", () => {
+      const built = buildFloor(p) ?? undefined;
+      return { value: built, weight: built === undefined ? 64 : built.compiled.reduce((n, c) => n + c.rx.source.length + 64, 64) };
+    });
+    floorSlots.set(pid, holder);
+  }
+  return holder.floor;
 }
 // Builds every copy now (the runtime check CI makes: DEAD_REGEX_IDS stays empty).
 export function buildAllFloors() {
