@@ -15,7 +15,16 @@ const sha = (text) => createHash("sha256").update(text, "utf8").digest("hex");
 const assigned = assignedFlags(UNICODE_PROPERTIES.Cn);
 const major = (v) => v.split(".").map(Number);
 const [a, b] = major(process.versions.unicode), [c, d] = major(PINNED_UNICODE);
-const skip = !(a > c || (a === c && b >= d)) && "this runtime reads an older Unicode than the tables";
+const OLDER = "this runtime reads an older Unicode than the tables";
+const older = !(a > c || (a === c && b >= d));
+// On a runtime older than the tables the compare cannot run. In CI that is a failure with this sentence, never a skip,
+// so a pipeline cannot pass without the compare having run; on a local run it may skip.
+const runtimeOk = (t) => {
+  if (!older) return true;
+  if (process.env.CI) assert.fail(OLDER + " (Unicode " + process.versions.unicode + " against " + PINNED_UNICODE + "): the compare did not run");
+  t.skip(OLDER);
+  return false;
+};
 
 test("the fixture is the pinned version's, and holds a block for every block of assigned code points", () => {
   assert.equal(FIXTURE.unicode, PINNED_UNICODE);
@@ -24,17 +33,20 @@ test("the fixture is the pinned version's, and holds a block for every block of 
   assert.ok(Object.keys(FIXTURE.blocks).length > 250);
 });
 
-test("lower case of every assigned code point, as the Worker computes it, equals the pinned interpreter's, block by block", { skip }, async () => {
+test("lower case of every assigned code point, as the Worker computes it, equals the pinned interpreter's, block by block", async (t) => {
+  if (!runtimeOk(t)) return;
   const got = await caseDigests(assigned, sha, lowerPinned, (s) => s.normalize("NFKC"));
   assert.deepEqual(differingBlocks(got, FIXTURE.blocks), []);
 });
 
-test("NFKC of every assigned code point, as the Worker computes it, equals the pinned interpreter's, block by block", { skip }, async () => {
+test("NFKC of every assigned code point, as the Worker computes it, equals the pinned interpreter's, block by block", async (t) => {
+  if (!runtimeOk(t)) return;
   const got = await caseDigests(assigned, sha, (s) => s.toLowerCase(), nfkcPinned);
   assert.deepEqual(differingBlocks(got, FIXTURE.blocks), []);
 });
 
-test("the runtime's own lower case and NFKC agree with the fixture on every assigned code point too", { skip }, async () => {
+test("the runtime's own lower case and NFKC agree with the fixture on every assigned code point too", async (t) => {
+  if (!runtimeOk(t)) return;
   assert.deepEqual(differingBlocks(await caseDigests(assigned, sha), FIXTURE.blocks), []);
 });
 
