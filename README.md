@@ -58,39 +58,32 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   bounds it there is the Workers CPU limit and the 30 scans per minute per IP
   cap, nothing in the engine.
 
-- **Word boundaries, NARROWED.** `\w` is now written as
-  `[\p{L}\p{N}_]`, chosen by enumerating every Unicode scalar. That is Python's
-  class as a FORM and not as a membership: under the real flags it admits 4,658
-  code points Python's does not, and the difference runs in both directions on
-  U+0345. The bullet below states it. This sentence used to say `\w` simply was
-  Python's own class, which asserted an equality the enumeration disproves.
+- **Word boundaries.** `\w` is written as `[\p{L}\p{N}_]`, a class of the same
+  form as Python's, with the code points of each property taken from the pinned
+  tables in `src/unicode_tables.js`. The bullet below gives the measured
+  difference.
 
   `\b` and `\B` are written as a pair of lookarounds over a narrow edge class,
   ASCII word characters plus U+0130 and U+0131, which under the real flags also
   holds U+017F and U+212A. Those four are the only non-ASCII letters an ASCII
-  rule letter matches, so a word such as one starting with U+0130 now starts
-  where Python says it does. The faithful rewrite over the full word class ran
-  V8's regex compiler out of heap on 0.5.8 and is still not used. Any other
-  non-ASCII letter next to a boundary can still differ. 958 of the 1,576 shipped
-  rules contain a boundary in a core or a guard, which is the number of rules
-  this can reach rather than the number it changes. The earlier 924 counted
-  core regex sources only and missed 38 rules whose boundary sits inside a
-  split-out guard, and guards execute like any other matcher.
+  rule letter matches, so a word starting with U+0130 starts where Python reads
+  it to start. Any other non-ASCII letter next to a boundary can differ.
+  958 of the 1,576 shipped rules contain a boundary in a core or a guard, which
+  is the number of rules this can reach rather than the number it changes.
 
-- **One word-class difference, OPEN and exactly one character, in BOTH
-  directions.** Under the real flags the emitted class admits 4,658 code points
-  Python's `\w` does not, and 4,657 of those are Unicode version skew. The
-  remaining one is U+0345, an already assigned combining character that
-  case-insensitive matching folds into the class. Expressing the exclusion needs
-  the `v` flag's set subtraction, which 890 of 1,630 compiled entries do not
-  currently accept, so this is constrained and disclosed rather than repaired.
-  This figure is derived from the compiled artefact by the recompile script, and this sentence is the only one the script checks.
-
-  It does NOT only over-match, and the earlier wording here said it did. The
-  positive class matches U+0345 where Python's `\w` does not, which can add a
-  finding. The NEGATED class fails to match it where Python's `\W` does, which
-  can drop one. Measured directly under `iu` in both directions. A miss is the
-  dangerous half and the old sentence hid it.
+- **Word class membership.** Swept over all 1,112,064 scalar values on 19 November
+  2026 beside Python 3.14.7 (Unicode 16.0.0), on Node 25.6.1 (Unicode 17.0), the class read with
+  case folding off holds the same 142,940 code points as Python's `\w`: 0 more
+  and 0 fewer. Under the real flags case folding follows the engine, and the class
+  also admits 3 code points Python's does not (U+0345 is one of them) and 0
+  fewer. A word class inside a negative lookaround, and a negated one, is
+  written with case folding off for the class alone, so it holds exactly the
+  letters, digits and the underscore; a positive one elsewhere keeps the wider
+  class, which can add a finding. Excluding those code points from the wider
+  class by set subtraction needs the `v` flag,
+  which 890 of 1,630 compiled entries do not currently accept. This figure is
+  derived from the compiled artefact by the recompile script, and this sentence
+  is the only one the script checks.
 
 - **UTF-16 offsets, narrowed.** The `u` flag makes matching step by code point;
   it does not change JavaScript string lengths or indices. The distances that
@@ -109,10 +102,15 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   measurements and can change an excerpt. Indexes inside a view are still UTF-16
   units and are only compared with each other.
 
-- **Unicode version skew, OPEN and not closable here.** 28 case-fold mappings
-  and 4,657 word characters differ between this runtime and the pip scanner's
-  Python, every one of them assigned in the newer Unicode. Measured by sweeping
-  all 1,112,064 scalars. Neither engine is wrong.
+- **Unicode version.** The Worker reads its own Unicode tables, version 16.0.0,
+  from `src/unicode_tables.js`, which `compile_unicode_tables.py` writes from the
+  interpreter the pip scanner is measured on (Python 3.14.7) and refuses to write
+  from any other Unicode version. The tables serve the letter, number, digit,
+  mark, other and separator classes of a rule, case folding, compatibility
+  normalization and the printable test of a base64 segment. The pip scanner
+  reads the tables of the Python it runs on, so beside a Python built against
+  another Unicode version a result can differ. `tools/edge_unicode_probe.sh`
+  prints how many code points the edge's engine counts beside the tables.
 
 - **HTML entities, NARROWED, and one regression found by review.** Numeric
   references match Python across the ordinary and invalid codepoint range,
@@ -184,15 +182,13 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
 - **Decimal digit shorthands, CLOSED.** A digit shorthand here matches the same
   code points as Python's, read against every code point and a recorded corpus.
   38 rules use a digit shorthand or its complement.
-- **Base64 segment screening, OPEN in one way.** The padding rules now match
-  the pip scanner's: a run is decoded only where the scanner decodes it, so
-  padding that cannot complete the last group leaves the run as written and
-  surplus padding is ignored. The length test counts code points, a leading BOM
-  is kept and makes the result non-printable, and a valid U+FFFD is kept, also
-  when the same segment holds invalid bytes, which are the only bytes dropped.
-  One difference remains. `str.isprintable()` is read from this runtime's
-  Unicode tables rather than Python's, so a character assigned in one and not
-  the other can decide a segment differently.
+- **Base64 segment screening.** The padding rules match the pip scanner's: a run
+  is decoded only where the scanner decodes it, so padding that cannot complete
+  the last group leaves the run as written and surplus padding is ignored. The
+  length test counts code points, a leading BOM is kept and makes the result
+  non-printable, and a valid U+FFFD is kept, also when the same segment holds
+  invalid bytes, which are the only bytes dropped. The printable test reads the
+  pinned tables of `src/unicode_tables.js`.
 - **100KB request cap** (Workers CPU guard). The pip scanner's own default is
   `MAX_SCAN_BYTES = 1024 * 1024`, applied to the input's length, so "no cap" was
   wrong. It is a different and larger cap, and it is configurable.
