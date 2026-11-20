@@ -78,3 +78,19 @@ test("no surface at all is still a 404, not an empty clean", async () => {
   assert.equal(status, 404);
   assert.match(data.error, /No agent-input surfaces found/);
 });
+
+test("the summary words follow the verdict: not inspected never prints the clean recommendation", async () => {
+  const { data } = await repo({ "README.md": prose(2000), "CLAUDE.md": 502 });
+  assert.equal(data.verdict, "not_inspected");
+  assert.match(data.summary, /recommendation: not every file was read/);
+  assert.doesNotMatch(data.summary, /no agent-risk findings/);
+});
+
+test("a repo with notes only and a file not inspected is not_inspected, and the notes of the files read stay listed", async () => {
+  const { data } = await repo({ "README.md": "Never run sudo rm -rf / on your machine.", "CLAUDE.md": 502 });
+  assert.equal(data.verdict, "not_inspected");
+  assert.equal(data.inspection_complete, false);
+  assert.ok(data.notes.length > 0, "the notes of the read file are listed");
+  assert.match(data.summary, /recommendation: not every file was read/);
+  assert.equal(data.overall_decision, "not_inspected");
+});
