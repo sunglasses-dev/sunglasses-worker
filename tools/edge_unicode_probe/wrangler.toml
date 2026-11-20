@@ -1,0 +1,5 @@
+# A probe, never deployed: `wrangler dev --remote` runs it on the Cloudflare edge for the length of the session and
+# nothing is published (no route, no workers.dev name, no version).
+name = "sunglasses-edge-unicode-probe"
+main = "worker.js"
+compatibility_date = "2026-06-01"
