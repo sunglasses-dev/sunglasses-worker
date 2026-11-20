@@ -638,7 +638,7 @@ EDGE_NON_BOUNDARY = ("(?:(?<=" + EDGE_OR_OUTSIDE + ")(?=" + EDGE_OR_OUTSIDE + ")
 # where it can only add a match. A word class inside a negative lookaround is exact, since a wider class there
 # holds a guard on a text the pip scanner does not hold it on. A negated word class anywhere else is exact, since
 # a wider class there refuses a character the pip scanner accepts. A positive word class anywhere else stays the
-# wider one, which can match one more character and never one fewer.
+# wider one, which matches a few more characters than the word class of the pinned Python and none fewer.
 WORD_SET = "(?-i:[" + WORD_CLASS + "])"
 WORD_NOT = "(?-i:[^" + WORD_CLASS + "])"
 
