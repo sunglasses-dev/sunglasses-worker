@@ -117,6 +117,11 @@ def main() -> int:
     total = len(rules)
     reach = sum(1 for sources in rules
                 if any(word_boundaries(s) for s in sources))
+    # The same count in its two parts, so a printed number that mixes them up shows where it went wrong.
+    reach_patterns = sum(1 for sources in data["patterns"] if any(word_boundaries(s) for s in sources))
+    reach_mechanisms = reach - reach_patterns
+    split = "%d of %d pattern rules plus %d of %d mechanism rules" % (
+        reach_patterns, len(data["patterns"]), reach_mechanisms, len(data["mechanisms"]))
 
     # The strings that actually ship, read rather than restated.
     about = (ROOT / "src" / "preprocessor.js").read_text()
@@ -175,11 +180,11 @@ def main() -> int:
         for line in failures:
             print("  " + line)
         print(f"\n  measured: {reach} of {total} rules carry a word boundary in "
-              f"a core or a guard; {wc_measured[0]} rules across {wc_measured[1]} entries hold the word class")
+              f"a core or a guard ({split}); {wc_measured[0]} rules across {wc_measured[1]} entries hold the word class")
         return 1
 
     print(f"disclosure gate clean: {reach} of {total} rules carry a word "
-          f"boundary, and /about and README both say so; {wc_measured[0]} rules across {wc_measured[1]} entries "
+          f"boundary ({split}), and /about and README both say so; {wc_measured[0]} rules across {wc_measured[1]} entries "
           f"hold the word class, and /about says so")
     return 0
 
