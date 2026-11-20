@@ -18,6 +18,7 @@
 // early can only fail to downgrade a hit, never downgrade one the scanner would
 // not. Where the scanner would vouch past a decoded escape this port reports the
 // hit at its plain severity.
+import { pinRx, lowerPinned } from "./pinned.js";
 import {
   HOMOGLYPHS, INVISIBLE_CHARS, LEET, VIEW_SEP, ENRICH_MAX_LEN,
   decodeHexEscapes, decodeHtmlEntities, decodeRot13, decodeShadowAscii,
@@ -70,20 +71,21 @@ const DEFENSIVE_BREAK_WORDS = new Set([
   "you", "your", "yours", "yourself"]);
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const W = "\\p{L}\\p{N}_";   // Python's \w
+const W = "\\p{L}\\p{N}_";   // Python's \w, written from the pinned tables by pinRx
+const MARK_START = pinRx("^\\p{M}", "u");
 // Python's str.isspace() and the blanks its \s reads.
 const PY_WS = "\\t-\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
 const OPENERS = "```|[\"“«‘'`「『]";
 const WORD = "[a-z0-9]+(?:-[a-z0-9]+)*";
 const WORDS = `${WORD}(?: ${WORD})*`;
 
-const NEGATION_RX = new RegExp(
+const NEGATION_RX = pinRx(
   `(?<![${W}'’])(?:${TRUE_NEGATIONS.map(escapeRe).join("|")})(?![${W}'’])`, "gu");
 const GAP_SPACES_RX = new RegExp(`(?<=[a-z0-9]) {2,${BLANK_RUN}}(?=[a-z0-9])`, "g");
 const GAP_FULL_RX = new RegExp(`^(?: ?(?:${WORDS} ?)?)$`);
 const LABEL_OPENER_RX = new RegExp(`^[${PY_WS}]*(?:${OPENERS})[${PY_WS}]*$`);
 const QUOTED_GAP_RX = new RegExp(`^(?: ?(?:(?<words>${WORDS})(?::[ ]?| ))?(?<open>${OPENERS})[ ]?)$`);
-const DEFENSIVE_RX = new RegExp(
+const DEFENSIVE_RX = pinRx(
   `(?<![${W}])(?:` +
   [...DEFENSIVE_FRAMING].sort((a, b) => b.length - a.length)
     .map((p) => escapeRe(p) + (p.endsWith("-") ? "" : `(?![${W}])`)).join("|") + ")", "gu");
@@ -94,7 +96,7 @@ const DEFENSIVE_PAREN_RX = new RegExp(
 const DEFENSIVE_QUOTED_GAP_RX = new RegExp(
   `^(?: ?(?:(?<words>${WORDS})(?::[ ]?| ))?(?<open>${OPENERS})[ ]?)`);
 
-const ALNUM = /^[\p{L}\p{N}]$/u;
+const ALNUM = pinRx("^[\\p{L}\\p{N}]$", "u");
 const isBraille = (ch) => ch !== "" && ch >= "\u2800" && ch <= "\u28ff";
 export const isAlnum = (ch) => ch !== undefined && ch !== "" && ALNUM.test(ch);
 
@@ -298,15 +300,15 @@ function variants(text) {
     let mapped = "";
     for (const c of base) mapped += HOMOGLYPHS[c] ?? c;
     for (const form of [base, mapped]) {
-      out.push(form, form.toLowerCase());
+      out.push(form, lowerPinned(form));
       if (form.includes("Σ")) {
-        out.push(form.toLowerCase().replace(/σ/g, "ς"));
+        out.push(lowerPinned(form).replace(/σ/g, "ς"));
       }
       let leet = "";
       for (const c of form) leet += LEET[c] ?? c;
-      out.push(leet, leet.toLowerCase());
+      out.push(leet, lowerPinned(leet));
       let leetLow = "";
-      for (const c of form.toLowerCase()) leetLow += LEET[c] ?? c;
+      for (const c of lowerPinned(form)) leetLow += LEET[c] ?? c;
       out.push(leetLow);
     }
   }
@@ -318,7 +320,7 @@ function variants(text) {
 // input the way a look-alike or a leet mapping does.
 function isCaseOf(c, reading) {
   if ([...reading].length !== 1 || c === reading || isAscii(c)) return false;
-  if (!(reading === c.toLowerCase() || (c === "Σ" && reading === "ς"))) return false;
+  if (!(reading === lowerPinned(c) || (c === "Σ" && reading === "ς"))) return false;
   return normalizeUnicode(c) === c && normalizeUnicode(reading) === reading
     && !(c in HOMOGLYPHS) && !(reading in HOMOGLYPHS);
 }
@@ -987,7 +989,7 @@ export function isDefensivelyFramed(text, matchStart, align, matchEnd) {
   DEFENSIVE_RX.lastIndex = context;
   for (let m; (m = DEFENSIVE_RX.exec(before)) !== null;) {
     // A combining mark in front of the phrase joins it to the word before.
-    if (m.index > 0 && /^\p{M}/u.test(cpBefore(before, m.index))) continue;
+    if (m.index > 0 && MARK_START.test(cpBefore(before, m.index))) continue;
     const gap = before.slice(m.index + m[0].length);
     if (!(framingGoverns(gap) || framingQuoteHolds(gap, text, matchStart, matchEnd, align))) continue;
     if (!align || align.holds(
@@ -1051,7 +1053,7 @@ function keptViews(plain, whole, count, foldedLength) {
   if (pieces.length - 1 !== count || pieces[0] !== plain) return none;
   const rot = decodeRot13(plain);
   const base = [plain];
-  if (rot !== plain) base.push(rot.toLowerCase());
+  if (rot !== plain) base.push(lowerPinned(rot));
   const width = 2 * base.length;
   let sections;
   if (count === width - 1) sections = 1;

@@ -1,3 +1,4 @@
+import { pinRx } from "./pinned.js";
 // Text helpers that read a string the way the pip scanner's interpreter does, for the structural validators.
 // A JavaScript string is a list of UTF-16 units and Python's is a list of code points; white space, line breaks
 // and decimal digits are not the same sets either. Each helper here names the Python call it stands for.
@@ -145,7 +146,7 @@ export function pyUnquote(text) {
 // float(text) succeeds
 const D = "\\p{Nd}";
 const DIGITPART = `${D}(?:_?${D})*`;
-const FLOAT_OK = new RegExp(
+const FLOAT_OK = pinRx(
   `^[${PY_SPACE}]*[+-]?(?:inf|infinity|nan|(?:${DIGITPART}(?:\\.(?:${DIGITPART})?)?|\\.${DIGITPART})(?:e[+-]?${DIGITPART})?)[${PY_SPACE}]*$`,
   "iu",
 );
@@ -187,4 +188,4 @@ export function pyIntOk(text, base) {
 }
 
 // str.isdigit(): decimal digits and the digits that are not decimal (superscripts, circled digits).
-export const PY_ISDIGIT = /^[\p{Nd}\u00b2-\u00b3\u00b9\u1369-\u1371\u19da\u2070\u2074-\u2079\u2080-\u2089\u2460-\u2468\u2474-\u247c\u2488-\u2490\u24ea\u24f5-\u24fd\u24ff\u2776-\u277e\u2780-\u2788\u278a-\u2792\u{10a40}-\u{10a43}\u{10e60}-\u{10e68}\u{11052}-\u{1105a}\u{1f100}-\u{1f10a}]+$/u;
+export const PY_ISDIGIT = pinRx(String.raw`^[\p{Nd}\u00b2-\u00b3\u00b9\u1369-\u1371\u19da\u2070\u2074-\u2079\u2080-\u2089\u2460-\u2468\u2474-\u247c\u2488-\u2490\u24ea\u24f5-\u24fd\u24ff\u2776-\u277e\u2780-\u2788\u278a-\u2792\u{10a40}-\u{10a43}\u{10e60}-\u{10e68}\u{11052}-\u{1105a}\u{1f100}-\u{1f10a}]+$`, "u");

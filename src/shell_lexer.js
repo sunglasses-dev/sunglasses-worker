@@ -1,6 +1,7 @@
 // A small shell lexer: words, process substitutions, redirections and operators, then pipeline segments, and the
 // words of a command past its wrapper programs. Port of the pip scanner's validators.py shell side. A reader of
 // words, not a shell: it does not run anything.
+import { pinRx } from "./pinned.js";
 import { PY_SPACE } from "./py_text.js";
 
 export class TooBig extends Error {}
@@ -26,7 +27,7 @@ export class Tok {
 
 export const DOLLAR = "\x00"; // a '$' the shell leaves alone (single quotes, backslash)
 
-const sticky = (source, flags = "") => new RegExp(source, "y" + flags);
+const sticky = (source, flags = "") => pinRx(source, "y" + flags);
 const WS = sticky("[ \\t\\r\\f\\v]+");
 export const PLAIN_SOURCE = `[^${PY_SPACE}'"\\\\\`$|&;<>()]+`;
 const PLAIN = sticky(PLAIN_SOURCE);
@@ -523,7 +524,7 @@ const WRAPPER_VALUE_OPTIONS = {
   caffeinate: new Set(["-t", "-w"]),
   xargs: new Set(["-n", "-I", "-P", "-d", "-L", "-s", "-E", "-a"]),
 };
-const DURATION = /^\p{Nd}+(?:\.\p{Nd}+)?[smhd]?$/u;
+const DURATION = pinRx(String.raw`^\p{Nd}+(?:\.\p{Nd}+)?[smhd]?$`, "u");
 
 const WRAPPER_NOEXEC_LONG = {
   env: ["--help", "--version"],
