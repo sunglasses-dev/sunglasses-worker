@@ -1,3 +1,4 @@
+import { pinRx, lowerPinned, nfkcPinned } from "./pinned.js";
 // A lexer for Python source, as the interpreter's own tokenizer reads it (3.14), for the reader of Python code.
 // The source is read as the interpreter reads a string: line ends are one newline, a last line with no newline gets one,
 // indentation uses the tab and form feed rules, and names, numbers and strings follow the same shapes.
@@ -49,7 +50,7 @@ export const setFStringHook = (hook) => {
 };
 
 const IDENT_RUN = /[A-Za-z0-9_\u0080-\u{10FFFF}]+/uy;
-const IDENT_OK = /^[\p{XID_Start}_]\p{XID_Continue}*$/u;
+const IDENT_OK = pinRx(String.raw`^[\p{XID_Start}_]\p{XID_Continue}*$`, "u");
 const PREFIXES = new Set(["r", "u", "b", "f", "t", "br", "rb", "fr", "rf", "tr", "rt"]);
 const isDigit = (c) => c >= "0" && c <= "9";
 const isHex = (c) => (c >= "0" && c <= "9") || (c >= "a" && c <= "f") || (c >= "A" && c <= "F");
@@ -59,7 +60,7 @@ const isIdentChar = (c) => (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (
 export function identifier(run) {
   if (/^[\x00-\x7f]*$/.test(run)) return run;
   if (!IDENT_OK.test(run)) fail("invalid character in identifier");
-  return run.normalize("NFKC");
+  return nfkcPinned(run);
 }
 
 const THREE = new Set(["**=", "//=", ">>=", "<<=", "..."]);
@@ -202,7 +203,7 @@ export class Lexer {
         IDENT_RUN.lastIndex = at;
         const run = IDENT_RUN.exec(s)[0];
         const quote = s[at + run.length];
-        if ((quote === '"' || quote === "'") && PREFIXES.has(run.toLowerCase())) return this.string(at, run);
+        if ((quote === '"' || quote === "'") && PREFIXES.has(lowerPinned(run))) return this.string(at, run);
         this.pos = at + run.length;
         return this.token("NAME", identifier(run), at, this.pos);
       }
@@ -290,7 +291,7 @@ export class Lexer {
       return { ...this.token("NUM", s.slice(at, end), at, end), kind: k };
     };
     if (s[i] === "0" && "xXoObB".includes(s[i + 1] || "-") && s[i + 1] !== undefined) {
-      const base = s[i + 1].toLowerCase();
+      const base = lowerPinned(s[i + 1]);
       const ok = base === "x" ? isHex : base === "o" ? (c) => c >= "0" && c <= "7" : (c) => c === "0" || c === "1";
       const name = base === "x" ? "hexadecimal" : base === "o" ? "octal" : "binary";
       i += 2;
@@ -355,7 +356,7 @@ export class Lexer {
     const quoteAt = at + prefix.length;
     const quote = s[quoteAt];
     const triple = s[quoteAt + 1] === quote && s[quoteAt + 2] === quote;
-    const lower = prefix.toLowerCase();
+    const lower = lowerPinned(prefix);
     const raw = lower.includes("r");
     const bytes = lower.includes("b");
     const body = quoteAt + (triple ? 3 : 1);

@@ -1,6 +1,7 @@
 // GLS-STRUCT-005: Python code that shows or sends every environment variable. The text is read as a Python program
 // (the whole text, or each fenced python block on its own), and the reader follows what `os.environ` stands for through
 // the tree: copies, views, loops, comprehensions and formats, to the calls that print, log, write or send it.
+import { pinRx, upperPinned } from "./pinned.js";
 import { PySyntax, parsePython, walk, children } from "./py_parser.js";
 import { cpHead, pySplitlines, pyStrip, PY_SPACE } from "./py_text.js";
 import { fencedBlocks } from "./registry_redirect.js";
@@ -19,11 +20,11 @@ const LOG_NUMBERS = new Map([
 ]);
 const HTTP_VERBS = new Set(["get", "post", "put", "patch", "delete", "head", "options", "request"]);
 const HTTP_MODULES = new Set(["requests", "httpx"]);
-const PERCENT = /%(\([^)]*\))?([#0\- +]*)(\*|\p{Nd}+)?(?:\.(\*|\p{Nd}*))?[hlL]?([a-zA-Z%])/uy;
-const WIDTH_ONLY = /^[<>^]?\p{Nd}{0,4}s?\n?$/u;
+const PERCENT = pinRx(String.raw`%(\([^)]*\))?([#0\- +]*)(\*|\p{Nd}+)?(?:\.(\*|\p{Nd}*))?[hlL]?([a-zA-Z%])`, "uy");
+const WIDTH_ONLY = pinRx(String.raw`^[<>^]?\p{Nd}{0,4}s?\n?$`, "u");
 const WRITE_MODE = /^[rwax+]*[wax+][rwax+]*\n?$/;
-const ENV_WORD = /(?<![\p{L}\p{N}_])environ(?![\p{L}\p{N}_])/u;
-const PYTHON_TAG = /^(?:python3?|py)(?![\p{L}\p{N}_+-])/iu;
+const ENV_WORD = pinRx(String.raw`(?<![\p{L}\p{N}_])environ(?![\p{L}\p{N}_])`, "u");
+const PYTHON_TAG = pinRx(String.raw`^(?:python3?|py)(?![\p{L}\p{N}_+-])`, "iu");
 const SPACE_ONLY = new RegExp(`^[${PY_SPACE}]+$`);
 
 const EXPRESSIONS = new Set([
@@ -395,7 +396,7 @@ class EnvironmentReader {
     if (isConst(node)) {
       if (node.value.k === "int") return node.value.v;
       if (node.value.k === "str") {
-        const found = LOG_NUMBERS.get(node.value.v.toUpperCase());
+        const found = LOG_NUMBERS.get(upperPinned(node.value.v));
         return found === undefined ? null : found;
       }
     }

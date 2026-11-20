@@ -5,6 +5,7 @@
 //
 // The engine runs them after the pattern layers, on the raw text cut at the scan limit (see runValidators).
 
+import { lowerPinned } from "./pinned.js";
 import { RegistryRedirectInShell } from "./registry_redirect.js";
 import { HookFetchAndRun } from "./hook_fetch.js";
 import { EnvironmentDumpedByPython } from "./environment_dump.js";
@@ -181,7 +182,7 @@ export function hostKind(url) {
   }
   const m = SCHEME.exec(url);
   if (m === null) return null;
-  const scheme = m[1].toLowerCase();
+  const scheme = lowerPinned(m[1]);
   if (scheme !== "http" && scheme !== "https") return null;
   const rest = url.slice(m[0].length);
   if (rest.slice(0, 2) !== "//") return null;
@@ -213,7 +214,7 @@ export function hostKind(url) {
   let host = colon === -1 ? authority : authority.slice(0, colon);
   const port = colon === -1 ? "" : authority.slice(colon + 1);
   if (!host || host.length > MAX_HOST || !isPort(port)) return null;
-  host = host.toLowerCase();
+  host = lowerPinned(host);
   const address = v4(host);
   if (address !== null) return v4NotPublic(address) ? null : ["public_ip", host];
   const name = host.endsWith(".") ? host.slice(0, -1) : host;

@@ -1,3 +1,4 @@
+import { pinSource, pinRx, lowerPinned, nfkcPinned } from "./pinned.js";
 import { HTML5_ENTITIES } from "./html5_entities.js";
 // Sunglasses Worker — preprocessor port of sunglasses/preprocessor.py (v0.4.9).
 // Stage order and semantics mirror the Python pipeline; known deltas are listed
@@ -81,7 +82,7 @@ export function stripInvisible(text) {
 }
 
 export function normalizeUnicode(text) {
-  return text.normalize("NFKC");
+  return nfkcPinned(text);
 }
 
 export function replaceHomoglyphs(text) {
@@ -237,11 +238,12 @@ export function decodeRot13(text) {
   });
 }
 
+const PRINTABLE_NOT = pinRx("[\\p{C}\\p{Z}]", "u");
 function isPrintableApprox(s) {
   // Python str.isprintable(): false for every other, separator and unassigned
   // character (control, format, private use, line/paragraph/space separators)
   // except the plain ASCII space.
-  return !/[\p{C}\p{Z}]/u.test(s.replace(/ /g, ""));
+  return !PRINTABLE_NOT.test(s.replace(/ /g, ""));
 }
 
 // Python's b64decode (non-validating) refuses a segment whose padding cannot
@@ -421,7 +423,7 @@ export function normalizeWithLength(text, record) {
     const rot = decodeRot13(text);
     if (rot !== text) text = text + " " + VIEW_SEP + " " + rot;
     text = text + " " + VIEW_SEP + " " + [...text].reverse().join("");
-    text = text.toLowerCase();
+    text = lowerPinned(text);
     const shape = text.replace(/\bl(?=[a-z])/g, "i");
     if (shape !== text) text = text + " " + VIEW_SEP + " " + shape;
   } else {
@@ -430,7 +432,7 @@ export function normalizeWithLength(text, record) {
     // matches raw text). Mirrors preprocessor.py.
     const rot = decodeRot13(text);
     if (rot !== text) text = text + " " + VIEW_SEP + " " + rot;
-    text = text.toLowerCase();
+    text = lowerPinned(text);
   }
   if (spaced !== null) text = text + " " + VIEW_SEP + " " + normalize(spaced);
   if (shadow !== null) {
@@ -601,6 +603,7 @@ const PY_DIGIT_BODY = PY_DIGIT_RANGES.map(([lo, hi]) => (lo === hi ? "\\u{" + lo
 // inside a class written as their ranges, an escaped backslash left as it is. \D outside a class is the
 // complement class. The \u{...} form needs flag u; every compiled rule carries it.
 export function withPythonDigits(source) {
+  source = pinSource(source);   // \p{...} first: the pinned tables, never the engine's own
   if (!source.includes("\\d") && !source.includes("\\D")) return source;
   let out = "";
   let inClass = false;

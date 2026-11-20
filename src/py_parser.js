@@ -2,6 +2,7 @@
 // reader of Python code needs it: every node type, its fields in the interpreter's order, the line of each statement,
 // expression and argument, and the contexts (Load, Store, Del) of names, attributes, subscripts and sequences.
 // A text that is not a program raises PySyntax.
+import { lowerPinned } from "./pinned.js";
 import { KEYWORDS, Lexer, PySyntax, Source, decode, fail, identifier, setFStringHook } from "./py_lexer.js";
 
 export { PySyntax };
@@ -1521,7 +1522,7 @@ class Parser {
 function numberValue(t) {
   const text = t.v.replace(/_/g, "");
   if (t.kind === "int") {
-    const lower = text.toLowerCase();
+    const lower = lowerPinned(text);
     if (lower.startsWith("0x") || lower.startsWith("0o") || lower.startsWith("0b")) return { k: "int", v: BigInt(lower) };
     return { k: "int", v: BigInt(text) };
   }

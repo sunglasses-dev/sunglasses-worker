@@ -1,6 +1,7 @@
 // Sunglasses Worker — engine port of sunglasses/engine.py scan() (v0.4.9).
 // Same lanes, same order: keyword index on NORMALIZED text, regexes on RAW text,
 // negation window, worst-severity decision.
+import { pinRx, lowerPinned } from "./pinned.js";
 import { runValidators } from "./validators.js";
 import { MECHANISMS } from "./mechanisms.js";
 import { FLOOR_ALWAYS, PATTERNS } from "./patterns.js";
@@ -147,7 +148,7 @@ const CASEFOLD = new Map([[0x130, "i"], [0x131, "i"], [0x212a, "k"], [0x17f, "s"
 function fold(text) {
   let out = "";
   for (const ch of text) out += CASEFOLD.get(ch.codePointAt(0)) ?? ch;
-  return out.toLowerCase();
+  return lowerPinned(out);
 }
 
 function matchAnchored(entry, text, start = 0) {
@@ -446,7 +447,7 @@ function lazyGuards(entry, id, guards) {
 const EXACT_GUARDS = [];
 const EXACT_GUARD_RING = 64;
 // The two forms of a guard read a text alike unless it holds a letter or digit outside ASCII.
-const NON_ASCII_TEXT = /(?![\x00-\x7f])[\p{L}\p{N}]/u;
+const NON_ASCII_TEXT = pinRx("(?![\\x00-\\x7f])[\\p{L}\\p{N}]", "u");
 // One answer per text, since every guard of a scan asks it of the same text.
 let outsideLetterText = null;
 let outsideLetterAnswer = false;
@@ -492,7 +493,7 @@ let keywordCount = 0;
 for (const p of [...PATTERNS, ...MECHANISMS]) {
   for (const ch of p.channel || []) declaredChannels.add(ch);
   for (const kw of p.keywords || []) {
-    const k = kw.toLowerCase();
+    const k = lowerPinned(kw);
     if (!keywordToPatterns.has(k)) keywordToPatterns.set(k, []);
     keywordToPatterns.get(k).push(p);
     keywordCount++;
@@ -626,7 +627,7 @@ export const VALID_CHANNELS = new Set([...DOCUMENTED_CHANNELS, ...declaredChanne
 // Python str.isalnum() is unicode-aware; \p{L}\p{N} is the closest JS
 // equivalent (letters + every numeric category). Wider than ASCII \w, which is
 // why the \w/\b limitation note does not apply to this check.
-const ALNUM = /[\p{L}\p{N}]/u;
+const ALNUM = pinRx("[\\p{L}\\p{N}]", "u");
 
 // Port of engine.py _word_bounded (v0.4.3), the "ignore previously cached
 // tokens" false block: "ignore previous" substring-matched inside "previously".
@@ -1457,7 +1458,7 @@ export const STATS = {
   // This published 7,098 until 2026-09-14, the ENTRY total, while the pip
   // scanner published 6,675 under the index definition. Two different questions
   // wearing one word, and a visitor comparing the demo to the product saw a gap
-  // that was not there. The index is keyed on `kw.toLowerCase()` and every
+  // that was not there. The index is keyed on `lowerPinned(kw)` and every
   // pattern regex is IGNORECASE, so two keywords differing only in case are ONE
   // entry: `X-Agent-Policy`/`x-agent-policy` and `Does not override`/`does not
   // override` are the only two such pairs, which is why a case-sensitive count

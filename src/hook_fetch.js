@@ -6,6 +6,7 @@
 // `command` is a hook command. Each command is split into words by the shell lexer and then into pipeline segments, and
 // the fetched bytes must reach the runner by one of four links: pipe, process substitution, command substitution, or a
 // download that a later segment runs.
+import { pinRx } from "./pinned.js";
 import { PY_ISDIGIT, PY_SPACE, cpHead } from "./py_text.js";
 import {
   Syntax, base, lex, program, redirectParts, runShell, Run, segments, startsOneOf, stdinRedirect, stdoutRedirects, stopped,
@@ -437,22 +438,22 @@ const NOT_AFTER_W = `(?<!${W})`;
 const NOT_BEFORE_W = `(?!${W})`;
 const SP = `[${PY_SPACE}]*`;
 const INLINE_FETCH = {
-  python: new RegExp(`${NOT_AFTER_W}(urlopen|requests\\.get|httpx\\.get)${SP}\\(`, "u"),
-  node: new RegExp(
+  python: pinRx(`${NOT_AFTER_W}(urlopen|requests\\.get|httpx\\.get)${SP}\\(`, "u"),
+  node: pinRx(
     `(?<![\\p{L}\\p{N}_.])(fetch)${SP}\\(|${NOT_AFTER_W}(https?\\.get)${SP}\\(|(require\\(${SP}['"]https?['"]${SP}\\)\\.get)${SP}\\(|${NOT_AFTER_W}(axios\\.get)${SP}\\(`,
     "u",
   ),
-  perl: new RegExp(`${NOT_AFTER_W}(LWP::Simple|LWP::UserAgent|HTTP::Tiny)${NOT_BEFORE_W}`, "u"),
-  ruby: new RegExp(`${NOT_AFTER_W}(Net::HTTP|URI\\.open|open-uri)${NOT_BEFORE_W}|${NOT_AFTER_W}(URI\\.parse)${SP}\\(`, "u"),
+  perl: pinRx(`${NOT_AFTER_W}(LWP::Simple|LWP::UserAgent|HTTP::Tiny)${NOT_BEFORE_W}`, "u"),
+  ruby: pinRx(`${NOT_AFTER_W}(Net::HTTP|URI\\.open|open-uri)${NOT_BEFORE_W}|${NOT_AFTER_W}(URI\\.parse)${SP}\\(`, "u"),
 };
 const INLINE_RUN = {
-  python: new RegExp(`(?<![\\p{L}\\p{N}_.])(?:exec|eval)${SP}\\(`, "gu"),
-  node: new RegExp(
+  python: pinRx(`(?<![\\p{L}\\p{N}_.])(?:exec|eval)${SP}\\(`, "gu"),
+  node: pinRx(
     `(?<![\\p{L}\\p{N}_.])(?:eval|Function)${SP}\\(|${NOT_AFTER_W}new[${PY_SPACE}]+Function${NOT_BEFORE_W}|\\.then${SP}\\(${SP}eval${SP}\\)`,
     "gu",
   ),
-  perl: new RegExp(`(?<![\\p{L}\\p{N}_:$@%&])eval${NOT_BEFORE_W}`, "gu"),
-  ruby: new RegExp(
+  perl: pinRx(`(?<![\\p{L}\\p{N}_:$@%&])eval${NOT_BEFORE_W}`, "gu"),
+  ruby: pinRx(
     `(?<![\\p{L}\\p{N}_.])(?:eval|instance_eval|class_eval)${NOT_BEFORE_W}|\\.(?:instance_eval|class_eval)${NOT_BEFORE_W}`,
     "gu",
   ),

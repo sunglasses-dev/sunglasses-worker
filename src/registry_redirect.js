@@ -4,6 +4,7 @@
 // The reader follows a script the way a shell would, as far as words go: variables the script sets, here-documents,
 // `$(...)` and backtick commands, shells started with `-c` or fed on standard input, wrapper programs, `printf` and
 // `echo` text written to a package manager's config file, and the config-set commands of npm, pnpm, yarn and pip.
+import { pinRx, lowerPinned } from "./pinned.js";
 import {
   PY_ISDIGIT, PY_SPACE, bisectLeft, bisectRight, charSize, cpHead, cpLength, isAscii, pyDigitsToInt, pyFirstWord, pyFloatOk,
   pyIntOk, pyLstrip, pySplitlines, pyStrip, pyUnquote, utf8Size,
@@ -20,7 +21,7 @@ const WORK_BUDGET = 1 << 26; // the most (UTF-8 bytes) all expansions of one sca
 const UNKNOWN = "\x01"; // stands for a value the script does not let us read (command output, unset variable)
 const MAX_DESCRIPTOR_DIGITS = 4;
 
-const SHELL_TAG = /^(?:sh|bash|shell|zsh|console|dockerfile)(?![\p{L}\p{N}_+-])/iu;
+const SHELL_TAG = pinRx(String.raw`^(?:sh|bash|shell|zsh|console|dockerfile)(?![\p{L}\p{N}_+-])`, "iu");
 const PROMPT = /(?<![^\n])([ \t]*)\$ /g;
 const VARIABLE_SOURCE = "\\$(?:([A-Za-z_][A-Za-z0-9_]*)|\\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-=+?])([^}]*))?\\})";
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
@@ -38,7 +39,7 @@ const PUBLIC_HOSTS = new Set([
 const PUBLIC_UPLOAD_HOSTS = new Set(["upload.pypi.org", "test.pypi.org"]);
 const DOCUMENTATION_HOSTS = ["example.com", "example.org", "example.net"];
 const MANAGERS = new Map([["npm", "npm"], ["pnpm", "pnpm"], ["yarn", "yarn"], ["pip", "pip"], ["pip3", "pip"]]);
-const PIP_NAME = /^pip3(?:\.\p{Nd}+)?$/u;
+const PIP_NAME = pinRx(String.raw`^pip3(?:\.\p{Nd}+)?$`, "u");
 const MANAGER_VALUE_OPTIONS = new Set([
   "--prefix", "--userconfig", "--globalconfig", "--workspace", "-w", "--cache", "--loglevel", "--location", "--registry",
   "--scope", "--otp", "--tag", "--dir", "-C", "--filter", "-F", "--file", "--config", "--cwd", "--cafile", "--ca", "--proxy",
@@ -68,7 +69,7 @@ function pipValueOk(name, value) {
   if (kind === undefined || value.includes(UNKNOWN)) return true;
   if (kind === "float") return pyFloatOk(value);
   if (kind === "int") {
-    const low = value.slice(0, 2).toLowerCase();
+    const low = lowerPinned(value.slice(0, 2));
     if (low === "0x") return pyIntOk(value, 16);
     if (low === "0b") return pyIntOk(value.slice(2) || "0", 2);
     return pyIntOk(value, value.slice(0, 1) === "0" ? 8 : 10);
@@ -293,7 +294,7 @@ function registryHost(url, pub = PUBLIC_HOSTS) {
     const port = colon < 0 ? "" : hostport.slice(colon + 1);
     host = colon >= 0 && (PY_ISDIGIT.test(port) || !port) ? head : hostport;
   }
-  host = pyUnquote(host).toLowerCase();
+  host = lowerPinned(pyUnquote(host));
   if (host.endsWith(".")) host = host.slice(0, -1);
   const bare = host.startsWith("www.") ? host.slice(4) : host;
   const documented =
@@ -324,7 +325,7 @@ function fileSettings(kind, content) {
     if (!stripped || "#;".includes(stripped[0])) continue;
     const header = SECTION.exec(line);
     if (header !== null && (kind === "pip" || kind === "pypirc")) {
-      section = pyStrip(header[1]).toLowerCase();
+      section = lowerPinned(pyStrip(header[1]));
       follows = false;
       continue;
     }
@@ -342,7 +343,7 @@ function fileSettings(kind, content) {
       found = PIP_SECTIONS.includes(section) ? PIP_LINE.exec(line) : null;
       if (found !== null) {
         follows = true;
-        out.push([found[1].toLowerCase(), settingValue(found[2])]);
+        out.push([lowerPinned(found[1]), settingValue(found[2])]);
       } else if (follows && (line[0] === " " || line[0] === "\t") && SCHEME.test(stripped)) {
         out.push(["extra-index-url", settingValue(stripped)]);
       } else follows = false;
@@ -440,7 +441,7 @@ function unescape(text, dialect, room = null) {
 // What `printf FORMAT ARGS` writes for a format of `%s`, `%b` and `%%` (with `-`, a width and a precision), or null for
 // any other conversion, whose output is left alone here.
 function printf(fmt, args) {
-  const tokens = [...fmt.matchAll(new RegExp(PRINTF_TOKEN_SOURCE, "gsu"))];
+  const tokens = [...fmt.matchAll(pinRx(PRINTF_TOKEN_SOURCE, "gsu"))];
   const specs = tokens.filter((m) => m[1] !== undefined);
   for (const m of specs) {
     const kind = m[4];
@@ -1110,7 +1111,7 @@ export const RegistryRedirectInShell = {
   pregate(text) {
     // a package manager or one of its config files, spelled with its quotes and continuations removed: the shell reads
     // `n'p'm` and `.npm\` + newline + `rc` as those names
-    const seen = text.toLowerCase().replace(CONTINUATION, "").split("\\_").join(" ").replace(/['"\\]/g, ""); // env -S reads \_ as a blank
+    const seen = lowerPinned(text).replace(CONTINUATION, "").split("\\_").join(" ").replace(/['"\\]/g, ""); // env -S reads \_ as a blank
     return MANAGER_WORD.test(seen) || MANAGER_AFTER_SPLIT.test(seen);
   },
 

@@ -8,6 +8,7 @@
 // characters of the input. matched_text is never changed; the report gets an added shown_text.
 //
 // The two runtimes differ on a few characters; the rows in the fixture are the contract.
+import { pinRx, lowerPinned, upperPinned, nfkcPinned } from "./pinned.js";
 import { HOMOGLYPHS, INVISIBLE_CHARS, LEET } from "./preprocessor.js";
 
 export const NO_SINGLE_PHRASE = "no single phrase: this rule reads the whole text";
@@ -27,13 +28,14 @@ for (const table of [HOMOGLYPHS, LEET]) {
 const CLASSES = new Map();
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const isBlank = (c) => /\s/u.test(c);
-const isAlnum = (c) => /[\p{L}\p{N}]/u.test(c);
+const ALNUM_ONE = pinRx("[\\p{L}\\p{N}]", "u");
+const isAlnum = (c) => ALNUM_ONE.test(c);
 
 function charClass(c) {
   let got = CLASSES.get(c);
   if (got === undefined) {
     const alts = new Set([c]);
-    const up = c.toUpperCase();
+    const up = upperPinned(c);
     if (up.length === c.length && [...up].length === 1) alts.add(up);
     for (const a of INVERSE.get(c) || []) alts.add(a);
     got = "(?:" + [...alts].sort().map(esc).join("|") + ")";
@@ -51,7 +53,7 @@ function expanded() {
     for (let cp = 0xa0; cp < 0x10000; cp++) {
       if (cp >= 0xd800 && cp < 0xe000) continue;
       const c = String.fromCharCode(cp);
-      const e = c.normalize("NFKC").toLowerCase();
+      const e = lowerPinned(nfkcPinned(c));
       if (e.length > 1 && e.length <= 4 && !/^\s+$/u.test(e)) {
         if (!EXPANDED.has(e)) EXPANDED.set(e, []);
         EXPANDED.get(e).push(c);
