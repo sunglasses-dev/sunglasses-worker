@@ -300,14 +300,14 @@ async function route(request, env) {
       // The engine's word for a read that is not whole: nothing found + not everything read = not_inspected. A finding
       // still decides, as it does in the pip scanner.
       const inspectionComplete = skipped.length === 0;
-      const verdict = !inspectionComplete && rollup.overall === "clean" ? "not_inspected" : rollup.overall;
+      const verdict = !inspectionComplete && (rollup.overall === "clean" || rollup.overall === "clean_notes") ? "not_inspected" : rollup.overall;
       const recommendation = {
         not_inspected: "not every file was read, so nothing is judged for the files listed as not inspected",
         clean: "no agent-risk findings",
         clean_notes: "no blocking agent-input found — notes below for your review",
         review_before_agent_ingestion: "review the flagged spans before letting an agent consume them",
         known_attack: "contains a known attack signature — do not feed to an agent",
-      }[rollup.overall];
+      }[verdict];
       return json({
         repo: repoSlug,
         verdict,
