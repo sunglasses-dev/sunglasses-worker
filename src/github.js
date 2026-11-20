@@ -124,4 +124,9 @@ export async function fetchRawFile(rawUrl) {
   return { status: 200, text };
 }
 
-export const GITHUB_CAPS = { MAX_FILE_BYTES, MAX_FILES };
+// Repo mode scans the surfaces of one request in the order listed, up to a byte total of surface text per request. A
+// surface after that total is answered as not inspected: never dropped and never read as clean.
+export const REPO_BYTE_BUDGET = 150_000;
+export const BUDGET_REASON = "Not scanned: this file came after the files this request read first.";
+
+export const GITHUB_CAPS = { MAX_FILE_BYTES, MAX_FILES, REPO_BYTE_BUDGET };
