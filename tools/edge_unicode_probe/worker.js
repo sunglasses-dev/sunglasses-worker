@@ -1,6 +1,13 @@
 // Asks the runtime this worker runs on which code points it counts in each Unicode class, and compares the answer with
 // the pinned tables (src/unicode_tables.js). It answers counts and ranges only: no scan, no state, no text in.
 import { PINNED_UNICODE, UNICODE_PROPERTIES } from "../../src/unicode_tables.js";
+import { assignedFlags, caseDigests, countAssigned, differingBlocks } from "../unicode_case_digest.js";
+import CASE_FIXTURE from "../../tests/fixtures/unicode_case_digests.json";
+
+const sha256hex = async (text) => {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return Array.from(d, (b) => b.toString(16).padStart(2, "0")).join("");
+};
 
 function runtimeRanges(name) {
   const rx = new RegExp("^\\p{" + name + "}$", "u");
@@ -34,6 +41,14 @@ export default {
     report.letter_or_number_samples = Object.fromEntries(sample.map((c) => [hex(c), ln.test(String.fromCodePoint(c))]));
     report.runtime_lower_of_a7ce = hex("꟎".toLowerCase().codePointAt(0));
     report.runtime_nfkc_of_a7f1 = hex("꟱".normalize("NFKC").codePointAt(0));
+    // lower case and NFKC of every code point the pinned tables assign, one digest per block, beside the digests the pinned
+    // interpreter wrote (tests/fixtures/unicode_case_digests.json): differ lists the blocks that are not equal
+    const assigned = assignedFlags(UNICODE_PROPERTIES.Cn);
+    const digests = await caseDigests(assigned, sha256hex);
+    report.lower_nfkc = {
+      block_size: CASE_FIXTURE.block_size, pinned_python: CASE_FIXTURE.python, assigned: countAssigned(assigned),
+      assigned_pinned: CASE_FIXTURE.assigned, differ: differingBlocks(digests, CASE_FIXTURE.blocks), digests,
+    };
     return new Response(JSON.stringify(report), { headers: { "content-type": "application/json" } });
   },
 };

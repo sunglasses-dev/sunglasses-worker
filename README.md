@@ -102,15 +102,20 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   measurements and can change an excerpt. Indexes inside a view are still UTF-16
   units and are only compared with each other.
 
-- **Unicode version.** The Worker reads its own Unicode tables, version 16.0.0,
-  from `src/unicode_tables.js`, which `compile_unicode_tables.py` writes from the
+- **Unicode version.** The Worker carries its own Unicode tables, version 16.0.0,
+  in `src/unicode_tables.js`, which `compile_unicode_tables.py` writes from the
   interpreter the pip scanner is measured on (Python 3.14.7) and refuses to write
-  from any other Unicode version. The tables serve the letter, number, digit,
-  mark, other and separator classes of a rule, case folding, compatibility
-  normalization and the printable test of a base64 segment. The pip scanner
-  reads the tables of the Python it runs on, so beside a Python built against
-  another Unicode version a result can differ. `tools/edge_unicode_probe.sh`
-  prints how many code points the edge's engine counts beside the tables.
+  from any other Unicode version. The tables decide the letter, number, digit,
+  mark, other and separator classes of a rule, which characters are assigned, and
+  the printable test of a base64 segment. Lower case and compatibility
+  normalization of an assigned character are computed by the runtime and are
+  tested equal to version 16.0.0 on every assigned character:
+  `tests/unicode_case_digests.test.mjs` compares them, block by block, with
+  digests that `compile_unicode_case_digests.py` writes from the same
+  interpreter. The pip scanner reads the tables of the Python it runs on, so
+  beside a Python built against another Unicode version a result can differ.
+  `tools/edge_unicode_probe.sh` prints how many code points the edge's engine
+  counts beside the tables and compares the same digests on the edge.
 
 - **HTML entities, NARROWED, and one regression found by review.** Numeric
   references match Python across the ordinary and invalid codepoint range,

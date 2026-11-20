@@ -1,8 +1,10 @@
 // The Unicode this Worker reads is the Unicode of the interpreter the pip scanner is measured on (PINNED_UNICODE),
-// written by range in unicode_tables.js. It is never the engine's own: a JavaScript engine answers \p{...}, case
-// mapping and normalization from the Unicode version it was built with, and the edge moves without us. Every
-// property a rule or a helper reads goes through this file, and a code point the pinned data has not assigned is
-// an unassigned character to all of them.
+// written by range in unicode_tables.js. The classes (\p{...}), upper case and the printable test are never the
+// engine's own: a JavaScript engine answers them from the Unicode version it was built with, and the edge moves without
+// us. Lower case and compatibility normalization (NFKC) take the engine's answer for an assigned character, held equal
+// to the pinned version on every assigned character by tests/unicode_case_digests.test.mjs. Every property a rule or a
+// helper reads goes through this file, and a code point the pinned data has not assigned is an unassigned character to
+// all of them.
 import { PINNED_UNICODE, UNICODE_PROPERTIES, UPPER_CASE } from "./unicode_tables.js";
 
 export { PINNED_UNICODE };
