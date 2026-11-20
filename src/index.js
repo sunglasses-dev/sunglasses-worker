@@ -5,7 +5,7 @@
 import { scan, STATS, VALID_CHANNELS } from "./engine.js";
 import { PATTERNS_VERSION, COMPILED_FROM } from "./patterns.js";
 import { LIMITATIONS } from "./preprocessor.js";
-import { parseGitHubUrl, fetchRawFile, readCapped, AGENT_SURFACES, GITHUB_CAPS } from "./github.js";
+import { parseGitHubUrl, fetchRawFile, readCapped, AGENT_SURFACES, GITHUB_CAPS, BUDGET_REASON } from "./github.js";
 import { rollupRepo, TIER_B_IDS, TIER_S_SIGNATURE_IDS } from "./policy.js";
 import { shownText, withShownText } from "./shown_text.js";
 
@@ -241,29 +241,49 @@ async function route(request, env) {
       if (parsed.error) return json({ error: parsed.error }, 400);
 
       const targets = parsed.files.slice(0, GITHUB_CAPS.MAX_FILES);
-      const files = await Promise.all(targets.map(async (t) => {
+      // The surfaces are fetched together and scanned one by one in the order listed, to a byte budget. A surface that
+      // is there and was not read whole (too big, the fetch failed, past the budget, the scan did not finish) is listed
+      // as not inspected: never clean, never dropped from the report.
+      const fetched = await Promise.all(targets.map(async (t) => {
         try {
-          const fetched = await fetchRawFile(t.rawUrl);
-          if (fetched.status === 404) return null; // surface not present in this repo
-          if (fetched.status !== 200) return { path: t.path, skipped: fetched.error };
-          const result = scan(fetched.text, "file");
-          return {
-            path: t.path,
+          const got = await fetchRawFile(t.rawUrl);
+          if (got.status === 404) return null; // surface not present in this repo
+          if (got.status !== 200) return { path: t.path, skipped: got.error, not_inspected: true };
+          return { path: t.path, text: got.text };
+        } catch {
+          return { path: t.path, skipped: "fetch failed", not_inspected: true };
+        }
+      }));
+      let spent = 0;
+      const files = [];
+      for (const f of fetched) {
+        if (!f) continue;
+        if (f.not_inspected) { files.push(f); continue; }
+        const size = new TextEncoder().encode(f.text).length;
+        if (spent + size > GITHUB_CAPS.REPO_BYTE_BUDGET) {
+          files.push({ path: f.path, skipped: BUDGET_REASON, not_inspected: true, bytes: f.text.length });
+          continue;
+        }
+        spent += size;
+        try {
+          const result = scan(f.text, "file");
+          files.push({
+            path: f.path,
             decision: result.decision,
             // Repo scans render by TIER, not severity: severity is enforcement
             // language and never appears under a green banner (AZ, Jul-17).
             findings: result.findings.map((finding) => ({
               ...finding,
-              shown_text: shownText(fetched.text, finding.matched_text || ""),
+              shown_text: shownText(f.text, finding.matched_text || ""),
               tier: TIER_S_SIGNATURE_IDS.has(finding.id) ? "S"
                 : TIER_B_IDS.has(finding.id) ? "B" : "A",
             })),
-            bytes: fetched.text.length,
-          };
+            bytes: f.text.length,
+          });
         } catch {
-          return { path: t.path, skipped: "fetch failed" };
+          files.push({ path: f.path, skipped: "Not scanned: the scan of this file did not finish.", not_inspected: true });
         }
-      }));
+      }
 
       const scanned = files.filter((f) => f && f.decision);
       const skipped = files.filter((f) => f && f.skipped);
@@ -277,7 +297,12 @@ async function route(request, env) {
       const rollup = rollupRepo(scanned.map((f) => ({ name: f.path, findings: f.findings })));
       const repoSlug = `${parsed.owner}/${parsed.repo}`;
       const selfScan = SELF_REPOS.has(repoSlug.toLowerCase());
+      // The engine's word for a read that is not whole: nothing found + not everything read = not_inspected. A finding
+      // still decides, as it does in the pip scanner.
+      const inspectionComplete = skipped.length === 0;
+      const verdict = !inspectionComplete && rollup.overall === "clean" ? "not_inspected" : rollup.overall;
       const recommendation = {
+        not_inspected: "not every file was read, so nothing is judged for the files listed as not inspected",
         clean: "no agent-risk findings",
         clean_notes: "no blocking agent-input found — notes below for your review",
         review_before_agent_ingestion: "review the flagged spans before letting an agent consume them",
@@ -285,26 +310,29 @@ async function route(request, env) {
       }[rollup.overall];
       return json({
         repo: repoSlug,
-        verdict: rollup.overall,
+        verdict,
+        inspection_complete: inspectionComplete,
         boundary: rollup.boundary,
         // Share-safe summary: the line a screenshot carries.
         summary: `${scanned.length} file(s) scanned · ${rollup.notes.length} note(s)` +
           (rollup.review.length ? ` · ${rollup.review.length} file(s) to review` : "") +
+          (skipped.length ? ` · ${skipped.length} file(s) not inspected` : "") +
           ` · recommendation: ${recommendation}`,
         notes: rollup.notes,
         review: rollup.review,
         signature_hits: rollup.signature_hits,
         // Legacy field for older clients: ladder mapped onto the old scale.
         // A repo can only reach "block" through a curated Tier-S signature.
-        overall_decision: { clean: "allow", clean_notes: "allow",
-          review_before_agent_ingestion: "quarantine", known_attack: "block" }[rollup.overall],
+        overall_decision: { not_inspected: "not_inspected", clean: "allow", clean_notes: "allow",
+          review_before_agent_ingestion: "quarantine", known_attack: "block" }[verdict],
         files_scanned: scanned.length,
+        files_not_inspected: skipped.length,
         surfaces_checked: targets.length,
         note: "Sunglasses scans agent-input surfaces (what an AI agent reads) — it is not a code auditor. " +
           "Per-file decisions show what a runtime guard would do with that file's content at the model-input boundary; " +
           "the repo verdict is a review recommendation, not a reputation judgment.",
         ...(selfScan ? { self_scan: true, self_scan_note: MIRROR_TEST_NOTE } : {}),
-        ...(rollup.overall !== "clean" ? { verdict_meaning: VERDICT_MEANING } : {}),
+        ...(verdict !== "clean" && verdict !== "not_inspected" ? { verdict_meaning: VERDICT_MEANING } : {}),
         files: scanned,
         skipped,
         engine: "sunglasses-worker demo",
