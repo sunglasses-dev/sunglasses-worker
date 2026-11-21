@@ -79,8 +79,9 @@ const OPENERS = "```|[\"“«‘'`「『]";
 const WORD = "[a-z0-9]+(?:-[a-z0-9]+)*";
 const WORDS = `${WORD}(?: ${WORD})*`;
 
+// A cue that follows a hyphen is the end of a longer word ("pre-never", "x-do not"), not a cue: pip's _NEGATION_RX reads it so.
 const NEGATION_RX = pinRx(
-  `(?<![${W}'’])(?:${TRUE_NEGATIONS.map(escapeRe).join("|")})(?![${W}'’])`, "gu");
+  `(?<![${W}'’-])(?:${TRUE_NEGATIONS.map(escapeRe).join("|")})(?![${W}'’])`, "gu");
 const GAP_SPACES_RX = new RegExp(`(?<=[a-z0-9]) {2,${BLANK_RUN}}(?=[a-z0-9])`, "g");
 const GAP_FULL_RX = new RegExp(`^(?: ?(?:${WORDS} ?)?)$`);
 const LABEL_OPENER_RX = new RegExp(`^[${PY_WS}]*(?:${OPENERS})[${PY_WS}]*$`);
