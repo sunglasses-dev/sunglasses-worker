@@ -68,7 +68,7 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   holds U+017F and U+212A. Those four are the only non-ASCII letters an ASCII
   rule letter matches, so a word starting with U+0130 starts where Python reads
   it to start. Any other non-ASCII letter next to a boundary can differ.
-  958 of the 1,576 shipped rules contain a boundary in a core or a guard, which
+  970 of the 1,577 shipped rules contain a boundary in a core or a guard, which
   is the number of rules this can reach rather than the number it changes.
 
 - **Word class membership.** Swept over all 1,112,064 scalar values on 19 November
@@ -81,7 +81,7 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   letters, digits and the underscore; a positive one elsewhere keeps the wider
   class, which can add a finding. Excluding those code points from the wider
   class by set subtraction needs the `v` flag,
-  which 890 of 1,630 compiled entries do not currently accept. This figure is
+  which 894 of 1,634 compiled entries do not currently accept. This figure is
   derived from the compiled artefact by the recompile script, and this sentence
   is the only one the script checks.
 

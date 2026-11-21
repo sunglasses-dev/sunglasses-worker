@@ -1,16 +1,6 @@
 {
  "verdict_fail": [],
- "id_delta": [
-  [
-   "attack:html-ent",
-   [
-    "GLS-CF-252",
-    "GLS-PI-018",
-    "GLS-PI-026"
-   ],
-   []
-  ]
- ],
+ "id_delta": [],
  "cases": [
   "attack:ignore-previous",
   "attack:rot13",
