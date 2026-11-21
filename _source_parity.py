@@ -45,6 +45,12 @@ anchor_terms and 7 compiled rules carry an entry with anchors. Those two are
 mapped explicitly below, and the mapping is checked by rule id on both sides
 rather than by a count, so a rule losing its anchors cannot be hidden by
 another gaining them.
+
+A DERIVED KEY is a third kind (contract bucket `derived`, one row today: `floor`). The compiler builds
+it from the tagged source's own functions and the source record carries no such field, so it is not a
+consulted field and cannot be one. The gate loads the TAGGED source, computes what the key must be, and
+compares the artefact with that: the same ids, the same number of entries per rule, nothing else
+carrying it, and a copy that did not convert leaves its rule one entry short, which is red.
 """
 import ast
 import glob
@@ -174,16 +180,85 @@ def load_contract():
         die(f"could not read the field contract at {path}: {e}")
     consulted = c["consulted"]
     metadata = c["metadata"]["keys"]
+    if c.get("contract_version", 1) < 2 or not isinstance(c.get("derived"), dict):
+        die("the field contract has no `derived` bucket (contract_version 2): the compiler's `floor` "
+            "key would be unclassified, and a contract that does not name it cannot grade it")
+    derived = {k: v for k, v in c["derived"].items() if not k.startswith("_")}
     overlap = set(consulted) & set(metadata)
     if overlap:
         die(f"the contract classifies {sorted(overlap)} as BOTH consulted and metadata")
-    return consulted, metadata
+    overlap = set(derived) & (set(consulted) | set(metadata))
+    if overlap:
+        die(f"the contract classifies {sorted(overlap)} as derived AND as a source field")
+    return consulted, metadata, derived
+
+
+def resolve(spec):
+    """'pkg.module:name' -> that object from the TAGGED source (already on sys.path), or die."""
+    import importlib
+    mod, _, name = spec.partition(":")
+    try:
+        return getattr(importlib.import_module(mod), name)
+    except Exception as e:
+        die(f"the contract names {spec} as a source of the derived key and the tagged source has "
+            f"no such thing ({type(e).__name__}: {e})")
+
+
+def check_floor(py, by_id, spec, problems):
+    """Derived key `floor`: the compiled floor is the tagged source's own guard floor twin, exactly.
+
+    Expected, read from the TAGGED source: every rule with a twin (`twin`) that is not on the quiet list
+    (`quiet`) carries a floor, with as many regex entries as its twin has regexes that compile (the
+    engine leaves the others out as well). Compared with the artefact: the same ids (a floor lost
+    would answer lower on the hosted scan than under pip; a floor on a rule the source gives none is
+    an invention) and, per rule, the same number of entries (a copy that did not convert leaves
+    the rule one entry short). Returns (expected ids, rules with a twin, twins on the quiet list, expected entries, compiled ids,
+    compiled entries) for the printed measure line.
+    """
+    import re
+    twin_of = resolve(spec["built_from"]["twin"])
+    quiet = set(resolve(spec["built_from"]["quiet"]))
+    want, twins = {}, 0
+    for p in py:
+        t = twin_of(p)
+        if t is None:
+            continue
+        twins += 1
+        if p["id"] in quiet:
+            continue
+        n = 0
+        for r in t["regex"]:
+            try:
+                re.compile(r, re.IGNORECASE)
+            except re.error:
+                continue
+            n += 1
+        want[p["id"]] = n
+    have = {}
+    for pid, c in by_id.items():
+        if "floor" not in c:
+            continue
+        f = c["floor"]
+        if not isinstance(f, dict) or not isinstance(f.get("regex"), list):
+            problems.append(f"{pid}: floor is not an object with a regex list ({_short(f)})")
+            continue
+        have[pid] = len(f["regex"])
+    for pid in sorted(set(want) - set(have)):
+        problems.append(f"{pid}: floor LOST in compilation (the tagged source gives this rule a guard floor "
+                        f"of {want[pid]} entr{'y' if want[pid] == 1 else 'ies'}; the hosted scan would answer lower than pip)")
+    for pid in sorted(set(have) - set(want)):
+        problems.append(f"{pid}: floor INVENTED by the compiler (the tagged source gives this rule none)")
+    for pid in sorted(set(want) & set(have)):
+        if want[pid] != have[pid]:
+            problems.append(f"{pid}: floor has {have[pid]} regex entr{'y' if have[pid] == 1 else 'ies'}, the tagged "
+                            f"source's twin has {want[pid]} (a copy that did not convert is red, never dropped)")
+    return len(want), twins, twins - len(want), sum(want.values()), len(have), sum(have.values())
 
 
 def main():
     patterns_js = sys.argv[1] if len(sys.argv) > 1 else os.path.join(WORKER, "src", "patterns.js")
     P, M = python_side()
-    consulted, metadata = load_contract()
+    consulted, metadata, derived_keys = load_contract()
     from sunglasses.engine import SunglassesEngine as _E
     denylist = set(_E.KEYWORD_DENYLIST)          # from the TAGGED source, never typed
     record_fields = [k for k, v in consulted.items() if v["where"] == "record"]
@@ -192,7 +267,7 @@ def main():
     comp = compiled_side(patterns_js)["patterns"]
 
     print(f"  source   {SCANNER}")
-    print(f"  contract {len(consulted)} consulted + {len(metadata)} metadata (pattern_field_contract.json)")
+    print(f"  contract {len(consulted)} consulted + {len(metadata)} metadata + {len(derived_keys)} derived (pattern_field_contract.json)")
 
     # FAIL CLOSED ON A KEY NOBODY HAS CLASSIFIED. This is what makes the
     # contract complete where a derivation cannot be: a new pattern field cannot
@@ -201,6 +276,10 @@ def main():
     unclassified = {}
     for p in py:
         for k in p:
+            if k in derived_keys:
+                die(f"{p['id']} carries `{k}` in the tagged source, but the contract classifies it as DERIVED: "
+                    "a key the source record carries is a source field, so it is not derived; "
+                    "move it to `consulted` or `metadata`")
             if k not in classified:
                 unclassified.setdefault(k, p["id"])
     if unclassified:
@@ -249,12 +328,13 @@ def main():
     # source does not carry.
     by_id = {c["id"]: c for c in comp}
     problems = []
-    allowed_compiled = set(record_fields) | set(metadata)
+    source_keys = set(record_fields) | set(metadata)
+    allowed_compiled = source_keys | set(derived_keys)
 
     for p in py:
         c = by_id[p["id"]]
 
-        for key in sorted(allowed_compiled):
+        for key in sorted(source_keys):
             if key == "regex":
                 continue                                   # cardinality, below
             in_src, in_cmp = key in p, key in c
@@ -322,12 +402,21 @@ def main():
             if e.get("span") != want_span:
                 problems.append(f"{p['id']} regex[{i}]: span {e.get('span')!r} != anchor_span {want_span!r}")
 
+    floor_line = None
+    if "floor" in derived_keys:
+        floor_line = check_floor(py, by_id, derived_keys["floor"], problems)
+    else:
+        die("the contract has a `derived` bucket with no `floor` row, and the compiler emits a floor")
+
     if problems:
         die(f"(c) {len(problems)} preservation failure(s). first 6:\n     "
             + "\n     ".join(problems[:6]))
 
-    carried = {f: sum(1 for p in py if f in p) for f in sorted(allowed_compiled)}
+    carried = {f: sum(1 for p in py if f in p) for f in sorted(source_keys)}
     print("  \u2713 (c) every contracted field preserved by value, per rule")
+    exp_ids, twins, quiet_n, exp_entries, got_ids, got_entries = floor_line
+    print(f"  \u2713 (c) derived floor equals the tagged source's: {exp_ids} ids expected ({twins} rules with a twin, "
+          f"{quiet_n} of them on the quiet list), {got_ids} compiled; {exp_entries} entries expected, {got_entries} compiled")
     print(f"        {carried}")
     print("  SOURCE PARITY OK")
 
