@@ -807,6 +807,15 @@ function leadInOnly(view, a, b) {
   return true;
 }
 
+// A hit in a view that keeps the offsets of the plain one is the copy of a hit the plain view showed, and it is passed
+// over only while the copy has the words in front of it that lowered the plain one. A view that rewrites letters (ROT13)
+// shows the same hit when its script is one the rewrite leaves alone, with the cue in front of it written as other
+// letters, and that occurrence is judged on the view's own words, as the scanner judges it: it has no cue, so
+// nothing covers it.
+function copyKeepsCue(view, start, end) {
+  return checkNegation(view, start, null, end);
+}
+
 // The regex form of samePlace: the same characters stand at the same place in the
 // plain view and the same regex matches there with the same extent, so that hit
 // was read there already.
@@ -925,7 +934,8 @@ function laterLive(entry, subject, first, align, limit, tail, spans, spent, pid,
         continue;   // the same words; only how much of the lead-in is counted differs
       }
       prev = m;
-      if (base !== null && base.length && copyOfJudgedHit(entry, view, m, copyLo, stop, base)) continue;
+      if (base !== null && base.length && copyOfJudgedHit(entry, view, m, copyLo, stop, base)
+          && copyKeepsCue(view, m.index, matchEnd(m))) continue;
       if (bump(spent, pid) > LATER_HITS) return true;   // the cap is spent and a further hit remains
       if (base !== null || !hitCovered(view, m.index, align, matchEnd(m), framed, negation, view === subject ? frame : null)) return true;
     }
@@ -994,7 +1004,8 @@ function laterKeywordLive(regions, keyword, skip, align, spent, pid) {
     while (at !== -1 && at + keyword.length <= hi) {
       const isFirst = skip[0] === keyword && skip[1] === at + shift;
       if (!isFirst && wordBounded(view, at, keyword)
-          && !(base !== null && base.length && samePlace(view, at, at + keyword.length, lo, hi, base))) {
+          && !(base !== null && base.length && samePlace(view, at, at + keyword.length, lo, hi, base)
+               && copyKeepsCue(view, at, at + keyword.length))) {
         // A hit in a span that reads as the text before it written backwards is never lowered.
         const place = at + shift;
         if (regions.reversed && regions.reversed.some(([a, b]) => place >= a && place < b)) return true;
