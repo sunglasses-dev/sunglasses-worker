@@ -64,8 +64,22 @@ const QUOTE_CLOSERS = {
   "'": "'", "`": "`", "「": "」", "『": "』",
 };
 const NEGATION_CLAUSE_WORDS = new Set(["then", "now", "but", "so", "instead", "and", "or"]);
+// A word that turns the thing after a cue into an order ("do not hesitate to X", "never only X", "do not fail to X").
+// One of these anywhere between a cue and the hit means the cue does not govern; at the head of a quoted stretch
+// the whole list reads.
 const NEGATION_FLIP_WORDS = new Set([
-  "hesitate", "fail", "forget", "refuse", "neglect", "omit", "skip", "miss"]);
+  "hesitate", "hesitates", "hesitated", "hesitating", "hesitation", "hesitations",
+  "fail", "fails", "failed", "failing", "forget", "forgets", "forgetting", "refuse",
+  "refuses", "refusing", "neglect", "neglecting", "omit", "omitting", "skip", "skipping",
+  "miss", "missing",
+  "problem", "problems", "worry", "worries", "matter", "matters", "doubt", "doubts",
+  "question", "questions", "delay", "delays", "ado", "further", "more", "only", "just",
+  "merely", "simply", "longer", "need", "needs", "wait", "waiting", "afraid", "shy",
+  "reluctant", "hurry", "exception", "exceptions", "reservation", "reservations",
+  "objection", "objections", "complaint", "complaints", "pause", "fear", "ceremony",
+  "thought", "choice", "stop", "cease"]);
+const NEGATION_FLIP_PLAIN_ONLY = new Set(["just", "wait", "waiting", "stop"]);
+const NEGATION_FLIP_OLD_CUES = new Set([...NEGATION_FLIP_WORDS].filter((w) => !NEGATION_FLIP_PLAIN_ONLY.has(w)));
 const DEFENSIVE_BREAK_WORDS = new Set([
   "then", "now", "but", "so", "instead", "however",
   "you", "your", "yours", "yourself"]);
@@ -821,8 +835,8 @@ const words = (s) => s.split(/\s+/).filter(Boolean);
 
 // True if the text between a TRUE_NEGATION and the match keeps the match inside
 // the negated clause: plain ASCII words (letters, digits, hyphens) joined by
-// single spaces, within NEGATION_GAP_WORDS, with no clause word and no leading
-// verb of omission. A run of up to BLANK_RUN spaces between two words of the
+// single spaces, at most as many as the limit allows, holding none of the clause words and none of
+// the words that turn the next thing into an order. A run of up to BLANK_RUN spaces between two words of the
 // gap counts as one space.
 // The characters a lead-in match can open on that end a sentence or open a clause (pip _LEADIN_BREAKS).
 const LEADIN_BREAKS = new Set(".!?;:\n([{".split(""));
@@ -832,7 +846,7 @@ function negationGoverns(gap) {
   if (!GAP_FULL_RX.test(gap)) return false;
   const ws = words(gap);
   if (ws.length > NEGATION_GAP_WORDS) return false;
-  if (ws.length && NEGATION_FLIP_WORDS.has(ws[0])) return false;
+  if (ws.some((w) => NEGATION_FLIP_OLD_CUES.has(w))) return false;
   return !ws.some((w) => NEGATION_CLAUSE_WORDS.has(w));
 }
 
