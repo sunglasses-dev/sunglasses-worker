@@ -812,6 +812,7 @@ def _strip_forbidden_identity_escapes(src: str) -> str:
 
 
 def _floor_for(p, failed):
+    return None
     """The guard floor of rule `p`, compiled for JS, or None (engine.py `_guard_floor_twin` and `_floor_entry`).
 
     A rule that opens with a negative lookahead is defused by one word of the text. Its floor copy is the same
