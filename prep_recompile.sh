@@ -220,6 +220,12 @@ gate "v-flag disclosure (canonical sentence only)" node _vflag_disclosure_gate.m
 # compiled artefact answers it. This deletes each remaining metadata key and
 # requires the engine's output to be unchanged over the parity corpus.
 gate "metadata contract" node controls/metadata_is_measured.mjs
+# (g) THE DERIVED `floor` KEY, each refusal seen red before the green is believed. Gate (c) compares the
+# compiled floor with the tagged source's own guard floor twin (contract bucket `derived`); these controls
+# change the artefact the way a wrong compiler would (floor lost, floor on a rule with no twin, on a quiet
+# rule, moved to another rule, an entry dropped or added, a malformed floor) and a contract that does not
+# name the key. Every row must refuse for its own reason.
+gate "floor contract controls" python3 controls/floor_contract_controls.py "$PRIVATE" "${WORKER}/src/patterns.js"
 
 cat <<NEXT
 

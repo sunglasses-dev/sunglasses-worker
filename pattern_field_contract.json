@@ -41,7 +41,7 @@
     "measured on v0.5.9). Regex SEMANTICS stay with the behavioural parity gates;",
     "this file is about fields surviving compilation, not about what they match."
   ],
-  "contract_version": 1,
+  "contract_version": 2,
   "measured_against": "v0.5.9 / 7340fceba38ef441ae487d34dbd6889fcf60b3a5",
   "consulted": {
     "id": {
@@ -102,5 +102,18 @@
       "mechanism"
     ],
     "proven_inert_by": "controls/metadata_is_measured.mjs"
+  },
+  "derived": {
+    "_comment": "A key the compiler BUILDS from the tagged source's own functions where the source record carries no such field. It is not a source field, so it is not in `consulted`: a consulted row would make gate (c) ask every source record for it. Gate (c) loads the TAGGED source itself, computes what the key must be for every rule, and compares the compiled artefact with that. A source record that carries the key is refused, because the key would no longer be derived.",
+    "floor": {
+      "where": "derived",
+      "built_from": {
+        "twin": "sunglasses.engine:_guard_floor_twin",
+        "quiet": "sunglasses._floor_quiet:FLOOR_QUIET_IDS"
+      },
+      "compare": "id_set_and_entry_count_from_tagged_source",
+      "reason": "The compiled floor is the guard floor twin of the engine. The expected id set is every rule that has a twin and is not on the quiet list. The compiled ids that carry a floor are that set exactly, and each carries as many floor regex entries as the twin has regexes that compile. A floor copy that did not convert is a missing entry and is red.",
+      "measured": "on tag v0.6.25 (75ac4fdf): 1566 rules, 596 with a twin, 535 expected floor ids with 535 entries; the compile report says floor_copies 535, failed 0"
+    }
   }
 }
