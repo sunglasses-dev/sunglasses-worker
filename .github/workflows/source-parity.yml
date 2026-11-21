@@ -22,6 +22,7 @@ on:
       - pattern_field_contract.json
       - _source_parity.py
       - _dump_compiled.mjs
+      - dated_measures.py
       - controls/**
       - prep_recompile.sh
       - src/patterns.js
@@ -38,6 +39,7 @@ on:
       - pattern_field_contract.json
       - _source_parity.py
       - _dump_compiled.mjs
+      - dated_measures.py
       - controls/**
       - prep_recompile.sh
       - src/patterns.js
@@ -90,3 +92,4 @@ jobs:
         run: |
           node controls/metadata_is_measured.mjs
           python3 controls/floor_contract_controls.py /tmp/scanner "$PWD/src/patterns.js"
+          python3 controls/dated_measures_controls.py
