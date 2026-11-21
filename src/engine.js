@@ -615,12 +615,18 @@ function buildFloor(p) {
   for (const r of p.floor.regex) {
     try {
       const sticky = r.mode !== "plain";
-      compiled.push({
+      const entry = {
         mode: r.mode,
         rx: new RegExp(withPythonDigits(r.source), r.flags + (sticky ? "y" : "")),
         guards: [],
         requires: r.requires,     // the literals the RULE needs: the copy is skipped exactly where the rule is
+      };
+      // The same regex read from an offset, as a rule's own entry has it: a later hit of the copy is looked for from there.
+      lazySlot(entry, "rxFrom", () => {
+        const flags = entry.rx.flags.includes("g") ? entry.rx.flags : entry.rx.flags + "g";
+        return { value: new RegExp(entry.rx.source, flags), weight: entry.rx.source.length + 64 };
       });
+      compiled.push(entry);
     } catch {
       DEAD_REGEX_IDS.push(p.id);  // the same runtime check as the rules' own regexes
     }
@@ -654,6 +660,17 @@ function floorOf(pid) {
 export function buildAllFloors() {
   for (const pid of floorSource.keys()) floorOf(pid);
   return floorSource.size;
+}
+// Every compiled entry a scan can walk: the entries of each rule and the entries of each floor copy (the floor copies are
+// built here if they are not yet). A test reads them to hold what every entry carries.
+export function walkableEntries() {
+  const out = [];
+  for (const { pattern, compiled } of regexPatterns) for (const entry of compiled) out.push({ id: pattern.id, floor: false, entry });
+  for (const pid of floorSource.keys()) {
+    const copy = floorOf(pid);
+    if (copy !== undefined) for (const entry of copy.compiled) out.push({ id: pid, floor: true, entry });
+  }
+  return out;
 }
 // Rules whose negative lookahead sits where the engine cannot see it trip: their copy is walked on every scan.
 const floorAlways = new Set(FLOOR_ALWAYS);
