@@ -162,6 +162,20 @@ SG_SCANNER_ROOT="$PRIVATE" python3 _source_parity.py "${WORKER}/src/patterns.js"
   || die "source parity FAILED. The compiled set is not the tagged rule set. Do not deploy this."
 grep -o 'PATTERNS_VERSION = "[^"]*"\|COMPILED_FROM = "[^"]*"' src/patterns.js | sed 's/^/     /'
 
+# DATED MEASURES. The /about limitations carry "Measured on <date> ..." sentences. A recompile changes the rule set under
+# them, and a measure made before the set existed describes the previous set. This prints which ones are older than
+# the compiled set (the date of the tagged source commit) so they are re-measured before anything is published. It
+# reports and does not stop the prep: the numbers cannot be re-measured inside a recompile.
+echo "── dated measures in /about against the compiled set ──"
+SET_DATE="$(git -C "$PRIVATE" log -1 --format=%cs "$TAG_SHA")"
+MEASURE_RC=0
+python3 dated_measures.py src/preprocessor.js "$SET_DATE" || MEASURE_RC=$?
+case "$MEASURE_RC" in
+  0) ok "no dated measure is older than the compiled set" ;;
+  1) echo "  ⚠ RE-MEASURE the listed sentences on this set before /about is published (they describe the previous set)" ;;
+  *) echo "  ⚠ the measure check could not read the dated sentences; read src/preprocessor.js by hand" ;;
+esac
+
 echo "── 6/6 gates ──"
 # EACH GATE CHECKED EXPLICITLY. These were written as `cmd && ok "..."`, which
 # put the gate on the LEFT of `&&`, where `set -e` deliberately does not fire, so
@@ -226,6 +240,8 @@ gate "metadata contract" node controls/metadata_is_measured.mjs
 # rule, moved to another rule, an entry dropped or added, a malformed floor) and a contract that does not
 # name the key. Every row must refuse for its own reason.
 gate "floor contract controls" python3 controls/floor_contract_controls.py "$PRIVATE" "${WORKER}/src/patterns.js"
+# (h) THE DATED MEASURE CHECK OF STEP 5, each outcome seen red before the green is believed.
+gate "dated measure controls" python3 controls/dated_measures_controls.py
 
 cat <<NEXT
 
@@ -234,3 +250,6 @@ cat <<NEXT
      1. ASTRA's GO on the exact head
      2. AZ's GO on the Worker deploy path
 NEXT
+if [ "$MEASURE_RC" -ne 0 ]; then
+  echo "   ⚠ DATED MEASURES OLDER THAN THIS SET (listed in step 5): re-measure them before /about is published"
+fi

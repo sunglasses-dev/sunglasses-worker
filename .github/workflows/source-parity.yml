@@ -1,0 +1,95 @@
+# Source parity: the compiled rule set must be the tagged Python source's rule set, field by field, floor included.
+# prep_recompile.sh runs this gate at the recompile step; that was too late once, when the compiler stopped
+# carrying a key and nothing said so until the release. This job runs it on every change to the compiler,
+# the contract, the gate or its controls, and on every change to the compiled files themselves.
+#
+# Two readings, both against the scanner tag the committed artefact says it was compiled from:
+#   1. the artefact AS COMMITTED (what the Worker serves),
+#   2. a fresh compile of that tag made here by the compiler in this change (what the next recompile will emit).
+# Then the controls: each refusal of the gate seen red against a deliberately wrong artefact.
+name: source-parity
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - compile_patterns.py
+      - compile_mechanisms.py
+      - compile_entities.py
+      - compile_unicode_case_digests.py
+      - compile_unicode_tables.py
+      - compile_utf7_tables.py
+      - pattern_field_contract.json
+      - _source_parity.py
+      - _dump_compiled.mjs
+      - dated_measures.py
+      - controls/**
+      - prep_recompile.sh
+      - src/patterns.js
+      - src/mechanisms.js
+      - .github/workflows/source-parity.yml
+  pull_request:
+    paths:
+      - compile_patterns.py
+      - compile_mechanisms.py
+      - compile_entities.py
+      - compile_unicode_case_digests.py
+      - compile_unicode_tables.py
+      - compile_utf7_tables.py
+      - pattern_field_contract.json
+      - _source_parity.py
+      - _dump_compiled.mjs
+      - dated_measures.py
+      - controls/**
+      - prep_recompile.sh
+      - src/patterns.js
+      - src/mechanisms.js
+      - .github/workflows/source-parity.yml
+
+jobs:
+  source-parity:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # The scanner's reader runs on the interpreter the compiler was written against; the stopped-text job in
+      # parity.yml uses the same one.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Check out the scanner tag the committed artefact was compiled from
+        run: |
+          VER="$(grep -o 'PATTERNS_VERSION = "[^"]*"' src/patterns.js | cut -d'"' -f2)"
+          FROM="$(grep -o 'COMPILED_FROM = "[^"]*"' src/patterns.js | cut -d'"' -f2)"
+          [ -n "$VER" ] && [ -n "$FROM" ] || { echo "::error::src/patterns.js carries no PATTERNS_VERSION or COMPILED_FROM"; exit 1; }
+          git clone --depth 1 --branch "v${VER}" https://github.com/sunglasses-dev/sunglasses.git /tmp/scanner
+          HEAD_SHA="$(git -C /tmp/scanner rev-parse HEAD)"
+          case "$HEAD_SHA" in
+            "$FROM"*) echo "scanner v${VER} is ${HEAD_SHA:0:12}, the commit the artefact says it was compiled from" ;;
+            *) echo "::error::tag v${VER} is ${HEAD_SHA:0:12} but the artefact says COMPILED_FROM ${FROM}"; exit 1 ;;
+          esac
+      - name: Gate (c) on the artefact as committed
+        env:
+          SG_SCANNER_ROOT: /tmp/scanner
+          SUNGLASSES_SRC: /tmp/scanner
+        run: python3 _source_parity.py "$PWD/src/patterns.js"
+      - name: Gate (c) on a fresh compile by the compiler in this change
+        env:
+          SG_SCANNER_ROOT: /tmp/scanner
+          SUNGLASSES_SRC: /tmp/scanner
+        run: |
+          python3 compile_patterns.py
+          python3 compile_mechanisms.py
+          python3 _source_parity.py "$PWD/src/patterns.js"
+          echo "what the fresh compile changed against the committed files (a compiler change lands in the next recompile):"
+          git --no-pager diff --stat -- src | tail -4
+      - name: Controls (each refusal of the gate, seen red)
+        env:
+          SG_SCANNER_ROOT: /tmp/scanner
+          SUNGLASSES_SRC: /tmp/scanner
+        run: |
+          node controls/metadata_is_measured.mjs
+          python3 controls/floor_contract_controls.py /tmp/scanner "$PWD/src/patterns.js"
+          python3 controls/dated_measures_controls.py
