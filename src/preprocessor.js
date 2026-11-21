@@ -23,6 +23,7 @@ export const LIMITATIONS = [
   "Unicode version. This scan carries its own Unicode tables, version 16.0.0. They decide the letter, number, digit, mark, other and separator classes of a rule, which characters are assigned, and the printable test of a base64 segment. Lower case and compatibility normalization of an assigned character are computed by the runtime and are tested equal to version 16.0.0 on every assigned character. The pip scanner reads the tables of the Python it runs on, so beside a Python built against another Unicode version a result can differ",
   "Bounded search. A long single-word document is read with a bounded search, as in the pip scanner. 30 scans per minute per IP applies",
   "Lower than the pip scanner. Measured on 19 November 2026 beside the pip scanner on 152,670 probe rows, 0 answer lower. On 18 November the same rows read 671. A test in this repository reads the texts of at most 600 characters, drawn from the pip scanner's own rules and tests, that the pip scanner stops, 10,007 on 19 November 2026, and fails on a lower answer. For a decision that matters use the pip scanner",
+  "Known lower answers. Outside the probe rows above, 3 texts are known on which this hosted scan answers lower than the pip scanner. For a decision that matters use the pip scanner",
 ];
 
 export const HOMOGLYPHS = {
