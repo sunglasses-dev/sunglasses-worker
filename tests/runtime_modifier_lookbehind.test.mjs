@@ -7,8 +7,7 @@
 // It fails on the bad runtime and passes on the pinned one. It also checks node gives the same answers.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import net from "node:net";
+import { startWranglerDev } from "./wrangler_dev_start.mjs";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -24,32 +23,21 @@ const CASES = [
   ["(?<!(?-i:)i )ass", "iu", "I ass", null],  // a plain letter: same answer on every runtime tested
 ];
 
-const freePort = () => new Promise((resolve) => {
-  const s = net.createServer().listen(0, "127.0.0.1", () => { const { port } = s.address(); s.close(() => resolve(port)); });
-});
-
 test("regex answers: node and the pinned workerd agree with the spec", async () => {
   for (const [source, flags, text, want] of CASES) {
     const m = new RegExp(source, flags).exec(text);
     assert.equal(m ? m.index : null, want, `node: ${source} /${flags} on ${JSON.stringify(text)}`);
   }
-  const port = await freePort();
-  const inspector = await freePort();
-  const child = spawn(WRANGLER, ["dev", "--local", "--port", String(port), "--inspector-port", String(inspector)], { cwd: PROBE, stdio: ["ignore", "pipe", "pipe"] });
-  let log = "";
-  child.stdout.on("data", (d) => (log += d)); child.stderr.on("data", (d) => (log += d));
+  const ready = async (port) => (await fetch(`http://127.0.0.1:${port}/`, { method: "POST", body: JSON.stringify({ cases: [] }) })).ok;
+  const { port, stop } = await startWranglerDev({
+    command: (port, inspector) => [WRANGLER, ["dev", "--local", "--port", String(port), "--inspector-port", String(inspector)], { cwd: PROBE }],
+    ready,
+  });
   try {
-    const deadline = Date.now() + 120_000;
-    let ready = false;
-    while (Date.now() < deadline && !ready) {
-      if (child.exitCode !== null) throw new Error("wrangler dev exited early:\n" + log.slice(-800));
-      try { const r = await fetch(`http://127.0.0.1:${port}/`, { method: "POST", body: JSON.stringify({ cases: [] }) }); ready = r.ok; } catch { await new Promise((r) => setTimeout(r, 500)); }
-    }
-    assert.ok(ready, "wrangler dev did not come up:\n" + log.slice(-800));
     const res = await fetch(`http://127.0.0.1:${port}/`, { method: "POST", body: JSON.stringify({ cases: CASES.map(([source, flags, text]) => ({ source, flags, text })) }) });
     const { out } = await res.json();
     CASES.forEach(([source, flags, text, want], i) => assert.equal(out[i], want, `workerd: ${source} /${flags} on ${JSON.stringify(text)}`));
   } finally {
-    child.kill("SIGTERM");
+    stop();
   }
 });
