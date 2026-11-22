@@ -56,17 +56,20 @@ test("a pinned run keeps its neighbours: a run of unassigned characters inside a
   assert.equal(nfkcPinned("①" + hole + "Ａ"), "1" + hole + "A");
 });
 
-test("no engine-built RegExp holds a property class, and every rule's property is one the tables carry", async () => {
+test("an engine-built RegExp holds the property pair only in a corrected class, and every rule's property is one the tables carry", async () => {
   const real = globalThis.RegExp;
   const seen = [];
-  globalThis.RegExp = new Proxy(real, { construct(target, args, nt) { if (/\\[pP]\{/.test(String(args[0]))) seen.push(String(args[0]).slice(0, 80)); return Reflect.construct(target, args, nt); } });
+  globalThis.RegExp = new Proxy(real, { construct(target, args, nt) { if (/\\[pP]\{/.test(String(args[0]))) seen.push(String(args[0])); return Reflect.construct(target, args, nt); } });
   try {
     const engine = await import("../src/engine.js");
     engine.buildAllRegexes();
     engine.buildAllFloors();
     for (const t of ["plain words in a row", "caf\u00e9 \u0e51\u0e52 x", "a \u{32ca4} b"]) await engine.scan(t, "file");
   } finally { globalThis.RegExp = real; }
-  assert.deepEqual(seen, []);
+  // the pair stands only inside the corrected forms (rule_classes.test.mjs proves those equal the tables' class on every code point)
+  const CORRECTED = /\(\?:\(\?!\[[^\]\\]*\]\)\[[^\]]*\]\)|\(\?:\[[^\]\\]*\]\|\[\^[^\]]*\]\)|\(\?:\(\?-i:\[[^\]]*\]\)\(\?<!\(\?-i:\[[^\]\\]*\]\)\)\)|\(\?:\(\?-i:\[\^[^\]]*\]\)\|\(\?-i:\[[^\]\\]*\]\)\)/g;
+  // (the first-use check compiles the bare pair, "[\p{L}\p{N}]" and its negation, to read the engine's own class: nothing else does)
+  for (const src of seen.filter((x) => x !== "[\\p{L}\\p{N}]" && x !== "[^\\p{L}\\p{N}]")) assert.ok(!/\\[pP]\{/.test(src.replace(CORRECTED, "")), "a property class outside the corrected form: " + src);
   const { PATTERNS } = await import("../src/patterns.js");
   const { MECHANISMS } = await import("../src/mechanisms.js");
   const names = new Set();
