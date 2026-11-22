@@ -1,4 +1,4 @@
-import { pinSource, pinRx, lowerPinned, nfkcPinned } from "./pinned.js";
+import { pinRuleSource, pinSource, pinRx, lowerPinned, nfkcPinned } from "./pinned.js";
 import { HTML5_ENTITIES } from "./html5_entities.js";
 // Sunglasses Worker — preprocessor port of sunglasses/preprocessor.py (v0.4.9).
 // Stage order and semantics mirror the Python pipeline; known deltas are listed
@@ -602,8 +602,21 @@ const PY_DIGIT_BODY = PY_DIGIT_RANGES.map(([lo, hi]) => (lo === hi ? "\\u{" + lo
 // A rule's regex source with each \d outside a class written as the class of those digits and each \d
 // inside a class written as their ranges, an escaped backslash left as it is. \D outside a class is the
 // complement class. The \u{...} form needs flag u; every compiled rule carries it.
-export function withPythonDigits(source) {
-  source = pinSource(source);   // \p{...} first: the pinned tables, never the engine's own
+// The ASCII form of a source is small and is asked for again on every scan the store lets a regex go in, so it is kept
+// by source and flags. The full form is not kept: it is the large one, and the store is what bounds it.
+const ASCII_FORMS = new Map();
+export function withPythonDigits(source, flags, ascii = false) {
+  if (!ascii) return withPythonDigitsOnce(source, flags, false);
+  const key = flags + "\u0000" + source;
+  let made = ASCII_FORMS.get(key);
+  if (made === undefined) {
+    made = withPythonDigitsOnce(source, flags, true);
+    ASCII_FORMS.set(key, made);
+  }
+  return made;
+}
+function withPythonDigitsOnce(source, flags, ascii) {
+  source = pinRuleSource(source, flags, ascii);   // \p{...} first: the pinned tables' class, never the engine's own
   if (!source.includes("\\d") && !source.includes("\\D")) return source;
   let out = "";
   let inClass = false;
@@ -611,10 +624,10 @@ export function withPythonDigits(source) {
     const c = source[i];
     if (c === "\\") {
       const n = source[i + 1];
-      if (n === "d") out += inClass ? PY_DIGIT_BODY : "[" + PY_DIGIT_BODY + "]";
+      if (n === "d") out += ascii ? (inClass ? "0-9" : "[0-9]") : inClass ? PY_DIGIT_BODY : "[" + PY_DIGIT_BODY + "]";
       else if (n === "D") {
         if (inClass) throw new Error("a \\D inside a class has no class form here");
-        out += "[^" + PY_DIGIT_BODY + "]";
+        out += "[^" + (ascii ? "0-9" : PY_DIGIT_BODY) + "]";
       } else out += c + (n === undefined ? "" : n);
       i++;
       continue;

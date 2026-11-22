@@ -1,7 +1,7 @@
 // Sunglasses Worker — engine port of sunglasses/engine.py scan() (v0.4.9).
 // Same lanes, same order: keyword index on NORMALIZED text, regexes on RAW text,
 // negation window, worst-severity decision.
-import { pinRx, lowerPinned } from "./pinned.js";
+import { pinRx, lowerPinned, ASCII_FORM_GATE } from "./pinned.js";
 import { runValidators } from "./validators.js";
 import { MECHANISMS } from "./mechanisms.js";
 import { FLOOR_ALWAYS, PATTERNS } from "./patterns.js";
@@ -336,6 +336,7 @@ export function matchLeadin(entry, text, lower = 0) {
 function evalRegex(entry, text, folded, pages, start = 0, tripped = null, key = null) {
   if (folded !== undefined && canSkip(entry, folded, pages)) return null;
   if (start && (entry.mode === "guarded" || entry.mode === "windowed")) return null;
+  asciiForm = !hasOutsideLetter(text);
   if (entry.mode === "anchored") return matchAnchored(entry, text, start);
   if (entry.mode === "leadin") return matchLeadin(entry, text, start);
   if (entry.mode === "guarded") {
@@ -417,13 +418,20 @@ function evictSlot(slot) {
   slot.live = false;
   if (slot.onLeave !== undefined) slot.onLeave(old);
 }
+// THE FORM A RULE'S REGEXES ARE READ IN. A text whose letters and digits are all ASCII reads a rule's word classes
+// (\p{L}\p{N}, \d) as the ASCII ranges, the same answer as the full classes on any such text and a small fraction
+// of the source. evalRegex sets this from the text it is about to match; a slot built for one form is built again
+// when the other is asked for, so what the store holds is always the form being read.
+let asciiForm = false;
 function readSlot(slot) {
+  if (slot.live && slot.formed && slot.form !== asciiForm) evictSlot(slot);
   if (slot.live) {
     store.slots.delete(slot);   // read now: last to leave
     store.slots.set(slot, true);
     return slot.value;
   }
   const made = slot.make();
+  slot.form = asciiForm;
   slot.value = made.value;
   slot.weight = made.weight;
   slot.live = true;
@@ -436,8 +444,8 @@ function readSlot(slot) {
   }
   return slot.value;
 }
-function lazySlot(entry, key, make, onLeave) {
-  const slot = { make, onLeave, live: false, value: undefined, weight: 0 };
+function lazySlot(entry, key, make, onLeave, formed = false) {
+  const slot = { make, onLeave, formed, form: false, live: false, value: undefined, weight: 0 };
   Object.defineProperty(entry, key, { configurable: true, enumerable: true, get: () => readSlot(slot) });
 }
 // For tests and measures: the size (source characters), what the store holds now, and how often it built and let go.
@@ -452,26 +460,26 @@ export const ruleStoreStats = () => ({ budget: store.budget, held: store.slots.s
 function lazyRegex(entry, key, id, source, flags, fallback) {
   lazySlot(entry, key, () => {
     try {
-      const text = withPythonDigits(source, flags);
+      const text = withPythonDigits(source, flags, asciiForm);
       return { value: new RegExp(text, flags), weight: text.length + 64 };
     } catch {
       noteDead(id);
       return { value: fallback, weight: 64 };
     }
-  });
+  }, undefined, true);
 }
 function lazyGuards(entry, id, guards) {
   lazySlot(entry, "guards", () => {
     try {
       let weight = 64;
       const built = guards.map((g) => {
-        const text = withPythonDigits(g.source);
+        const text = withPythonDigits(g.source, g.flags, asciiForm);
         const rx = new RegExp(text, g.flags + "y");
         weight += text.length + 64;
         // `exact` is the same guard read with the exact word class. The first form is never narrower, so a text it
         // does not hold on needs nothing more (see guardHolds). The text stays with the guard while the guard is held.
-        if (g.exact !== undefined) {
-          rx.exactSource = withPythonDigits(g.exact);
+        if (g.exact !== undefined && !asciiForm) {
+          rx.exactSource = withPythonDigits(g.exact, g.flags);
           weight += rx.exactSource.length;
         }
         rx.exactFlags = g.flags + "y";
@@ -491,20 +499,21 @@ function lazyGuards(entry, id, guards) {
         g.exactRx = undefined;
       }
     }
-  });
+  }, true);
 }
 // The exact forms are built when a text needs one and kept in a small ring, so a long run of different guards
 // holds a bounded number of them.
 const EXACT_GUARDS = [];
 const EXACT_GUARD_RING = 64;
-// The two forms of a guard read a text alike unless it holds a letter or digit outside ASCII.
-const NON_ASCII_TEXT = pinRx("(?![\\x00-\\x7f])[\\p{L}\\p{N}]", "u");
+// The two forms of a guard read a text alike unless it holds a letter or digit outside ASCII, or a scalar that folds to one.
+const NON_ASCII_TEXT = ASCII_FORM_GATE;
+const ANY_NON_ASCII = /[^\x00-\x7f]/;   // the cheap first look: a text that is all ASCII holds no letter or digit outside it
 // One answer per text, since every guard of a scan asks it of the same text.
 let outsideLetterText = null;
 let outsideLetterAnswer = false;
 function hasOutsideLetter(text) {
   if (text !== outsideLetterText) {
-    outsideLetterAnswer = NON_ASCII_TEXT.test(text);
+    outsideLetterAnswer = ANY_NON_ASCII.test(text) && NON_ASCII_TEXT.test(text);
     outsideLetterText = text;
   }
   return outsideLetterAnswer;
@@ -526,11 +535,16 @@ function guardHolds(g, text) {
   return g.exactRx.exec(text) !== null;
 }
 export function buildAllRegexes() {
-  for (const { compiled } of regexPatterns) {
-    for (const entry of compiled) {
-      for (const key of ["rx", "guards", "rxGlobal", "rxSticky", "rxTwin"]) void entry[key];
+  // both forms, so a runtime that refuses a construct of either is found here
+  for (const form of [false, true]) {
+    asciiForm = form;
+    for (const { compiled } of regexPatterns) {
+      for (const entry of compiled) {
+        for (const key of ["rx", "guards", "rxGlobal", "rxSticky", "rxTwin"]) void entry[key];
+      }
     }
   }
+  asciiForm = false;
 }
 
 
@@ -573,7 +587,7 @@ for (const p of [...PATTERNS, ...MECHANISMS]) {
         const rx = entry.rx;
         const flags = rx.flags.includes("g") ? rx.flags : rx.flags + "g";
         return { value: new RegExp(rx.source, flags), weight: rx.source.length + 64 };
-      });
+      }, undefined, true);
       if (r.mode === "anchored") {
         // TWO compiled forms, because the Python lane makes two different
         // calls: a bounded `search` and, on a candidate, an anchored `match`
@@ -617,7 +631,7 @@ function buildFloor(p) {
       const sticky = r.mode !== "plain";
       const entry = {
         mode: r.mode,
-        rx: new RegExp(withPythonDigits(r.source), r.flags + (sticky ? "y" : "")),
+        rx: new RegExp(withPythonDigits(r.source, r.flags), r.flags + (sticky ? "y" : "")),
         guards: [],
         requires: r.requires,     // the literals the RULE needs: the copy is skipped exactly where the rule is
       };
