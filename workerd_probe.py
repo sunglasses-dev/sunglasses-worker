@@ -30,6 +30,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -58,30 +59,58 @@ def _post(url, body):
             return exc.code, {"raw": raw[:200]}
 
 
-def main():
-    port = _free_port()
-    proc = subprocess.Popen(
-        ["npx", "--no-install", "wrangler", "dev", "--port", str(port), "--local", "--var", "TURNSTILE_DISABLED:1"],
-        cwd=HERE, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
-    base = f"http://127.0.0.1:{port}"
+def _stop(proc):
     try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        proc.wait(timeout=15)
+    except Exception:                              # noqa: BLE001
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except Exception:                          # noqa: BLE001
+            pass
+
+
+def _boot(pick_port=_free_port, attempts=2):
+    """Start `wrangler dev` and wait until it answers. A port that was free when it was picked can be taken by another
+    process before wrangler binds it; wrangler then exits with "Address already in use" before it answers anything, which
+    says nothing about the code under test, so the start is tried once more on a new port. Any other exit is a failure.
+    Returns (process, base url), or (None, None) after printing why."""
+    for attempt in range(1, attempts + 1):
+        port = pick_port()
+        log = tempfile.TemporaryFile()
+        proc = subprocess.Popen(
+            ["npx", "--no-install", "wrangler", "dev", "--port", str(port), "--local", "--var", "TURNSTILE_DISABLED:1"],
+            cwd=HERE, stdout=log, stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        base = f"http://127.0.0.1:{port}"
         deadline = time.time() + BOOT_TIMEOUT_S
         while time.time() < deadline:
             if proc.poll() is not None:
+                log.seek(0)
+                said = log.read().decode(errors="replace")
+                if attempt < attempts and "address already in use" in said.lower():
+                    break                          # the port was taken; start again on a new one
                 print(f"🔴 wrangler dev exited during boot (code {proc.returncode})")
-                return 2
+                return None, None
             try:
                 with urllib.request.urlopen(f"{base}/about", timeout=2) as resp:
                     if resp.status == 200:
-                        break
+                        return proc, base
             except Exception:                      # noqa: BLE001 - still booting
                 time.sleep(1)
         else:
+            _stop(proc)
             print("🔴 wrangler dev never became ready")
-            return 2
+            return None, None
+    return None, None
 
+
+def main():
+    proc, base = _boot()
+    if proc is None:
+        return 2
+    try:
         failures = []
 
         # 1 · modifier-group regexes actually construct in workerd
@@ -126,14 +155,7 @@ def main():
         print("\n🟢 WORKERD PROBE PASS — 3/3 in the runtime that actually serves the site")
         return 0
     finally:
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            proc.wait(timeout=15)
-        except Exception:                          # noqa: BLE001
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except Exception:                      # noqa: BLE001
-                pass
+        _stop(proc)
 
 
 if __name__ == "__main__":
