@@ -81,7 +81,7 @@ Re-run all of it: `python3 compile_patterns.py && python3 parity_test.py && pyth
   letters, digits and the underscore; a positive one elsewhere keeps the wider
   class, which can add a finding. Excluding those code points from the wider
   class by set subtraction needs the `v` flag,
-  which 894 of 1,634 compiled entries do not currently accept. This figure is
+  which 894 of 1,635 compiled entries do not currently accept. This figure is
   derived from the compiled artefact by the recompile script, and this sentence
   is the only one the script checks.
 

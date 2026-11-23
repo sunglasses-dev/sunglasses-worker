@@ -59,7 +59,10 @@ def main():
     row("red: a mix, only the older one is named as older", rc, out, 1, ("1 of 2 measure(s) older",))
     real = os.path.join(ROOT, "src", "preprocessor.js")
     r = subprocess.run([sys.executable, CHECK, real, "2099-01-01"], capture_output=True, text=True)
-    row("red: today's /about text against a set made in 2099", r.returncode, r.stdout, 1, ("5 of 5 measure(s) older",))
+    sys.path.insert(0, ROOT)
+    import dated_measures
+    n = len(dated_measures.measures(open(real, encoding="utf8").read()))
+    row("red: today's /about text against a set made in 2099", r.returncode, r.stdout, 1, ("%d of %d measure(s) older" % (n, n),))
     print("  DATED MEASURE CONTROLS %s" % ("OK" if not bad else "FAILED (%d wrong)" % bad))
     sys.exit(1 if bad else 0)
 
