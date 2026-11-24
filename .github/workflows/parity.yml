@@ -52,6 +52,10 @@ jobs:
         env:
           SUNGLASSES_SRC: /nonexistent
         run: python3 -m unittest tests/test_channel_alias_table.py
+      - name: Secret marker (the scanner's marker, byte for byte)
+        env:
+          SUNGLASSES_SRC: /nonexistent
+        run: python3 -m unittest tests/test_door_mask_parity.py
       # The engine pin tracks the release patterns.js was compiled from, but
       # the policy layer is newer than that release — its Python reference is
       # current main, so it gets its own install.
