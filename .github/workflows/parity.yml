@@ -48,6 +48,10 @@ jobs:
         env:
           SUNGLASSES_SRC: /nonexistent
         run: python3 channel_parity.py
+      - name: Channel alias table (the scanner's table, key for key)
+        env:
+          SUNGLASSES_SRC: /nonexistent
+        run: python3 -m unittest tests/test_channel_alias_table.py
       # The engine pin tracks the release patterns.js was compiled from, but
       # the policy layer is newer than that release — its Python reference is
       # current main, so it gets its own install.

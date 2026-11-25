@@ -387,6 +387,7 @@ export const CHANNEL_ALIASES = {
   image_alt_text: "web_content",
   code: "file",             // source code is a file; the clean-code FP corpus
                             // was built on the file channel
+  agent_input: "message",   // text handed to an agent as input is a message-borne instruction
 };
 
 // ── Index build (once per isolate) ──────────────────────────────────────────
