@@ -8,6 +8,7 @@ import { LIMITATIONS } from "./preprocessor.js";
 import { parseGitHubUrl, fetchRawFile, readCapped, AGENT_SURFACES, GITHUB_CAPS, BUDGET_REASON } from "./github.js";
 import { rollupRepo, TIER_B_IDS, TIER_S_SIGNATURE_IDS } from "./policy.js";
 import { shownText, withShownText } from "./shown_text.js";
+import { maskDocument, maskReport } from "./door_mask.js";
 
 const MAX_BYTES = 100_000; // Workers CPU guard
 // The request body is read under its own ceiling before it is parsed. This is a
@@ -215,14 +216,15 @@ async function route(request, env) {
         return json({ error: `Unknown channel ${JSON.stringify(channel.slice(0, ECHO_CHANNEL_CHARS))}. Valid channels: ${valid}` }, 400);
       }
       const result = scan(text, channel);
-      return json({
+      // A finding of a secret class shows a marker in place of the key (src/door_mask.js).
+      return json(maskDocument({
         ...result,
         findings: withShownText(result.findings, text),
         ...(result.decision !== "allow" ? { verdict_meaning: VERDICT_MEANING } : {}),
         engine: "sunglasses-worker demo",
         patterns_version: PATTERNS_VERSION,
         product_of_record: "pip install sunglasses",
-      });
+      }));
     }
 
     if (path === "/scan-github" && request.method === "POST") {
@@ -308,7 +310,7 @@ async function route(request, env) {
         review_before_agent_ingestion: "review the flagged spans before letting an agent consume them",
         known_attack: "contains a known attack signature — do not feed to an agent",
       }[verdict];
-      return json({
+      return json(maskReport({
         repo: repoSlug,
         verdict,
         inspection_complete: inspectionComplete,
@@ -338,7 +340,7 @@ async function route(request, env) {
         engine: "sunglasses-worker demo",
         patterns_version: PATTERNS_VERSION,
         product_of_record: "pip install sunglasses",
-      });
+      }));
     }
 
     if (path === "/about") {
