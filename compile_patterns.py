@@ -908,6 +908,11 @@ def main():
         # field at all, so the Worker could only ever test them on raw text.
         if p.get("match_on"):
             entry["match_on"] = p["match_on"]
+        # A rule may carry a lower severity for the channels it names (engine.py `_read_channel_severity` / `_lowered_on_channel`).
+        # The engine reads it from the record, so the compiler carries it whole, as the source wrote it: a record without it
+        # would be served at the rule's own severity on every channel.
+        if "channel_severity" in p:
+            entry["channel_severity"] = p["channel_severity"]
         ok = True
         for rx in p.get("regex", []) or []:
             try:
