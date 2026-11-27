@@ -67,6 +67,10 @@
     "match_on": {
       "where": "record"
     },
+    "channel_severity": {
+      "where": "record",
+      "reason": "the scanner 0.6.29 rule set carries it. A rule may name a LOWER severity for some channels; engine.py reads it at load (`_read_channel_severity`) and `_lowered_on_channel` lowers every finding of that rule on that channel. The worker engine reads the same field from the record (readChannelSeverity / lowerForChannel), so it is consulted: a record that drops it serves the rule at its own severity on every channel. Carried whole, as the source wrote it; absent when the source omits it (no default)."
+    },
     "tier": {
       "where": "record"
     },

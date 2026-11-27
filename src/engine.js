@@ -720,6 +720,56 @@ const compiledById = new Map(regexPatterns.map(({ pattern, compiled }) => [patte
 // loaded pattern declares, so a typo can never scan against nothing.
 export const VALID_CHANNELS = new Set([...DOCUMENTED_CHANNELS, ...declaredChannels]);
 
+// A rule may carry `channel_severity`: a lower severity on named channels (its own severity stays what the rule says on every other
+// channel). It only lowers. A field that names an unknown channel, a severity that does not rank below the rule's own, or any other
+// shape is refused here, at load, so no rule can ship that a reader would have to guess about. Port of engine.py
+// `_read_channel_severity`; the table maps rule id -> { canonical channel: severity }.
+export function readChannelSeverity(patterns, validChannels = VALID_CHANNELS) {
+  const held = new Map();
+  for (const pattern of patterns) {
+    if (!Object.prototype.hasOwnProperty.call(pattern, "channel_severity")) continue;
+    const rule = pattern.id;
+    const field = pattern.channel_severity;
+    const own = SEVERITY_ORDER[pattern.severity] ?? 0;
+    if (field === null || typeof field !== "object" || Array.isArray(field) || Object.keys(field).length === 0) {
+      throw new Error(`${rule}: channel_severity must be a mapping of channel to severity`);
+    }
+    const canonical = {};
+    for (const [channel, severity] of Object.entries(field)) {
+      if (!validChannels.has(channel)) throw new Error(`${rule}: channel_severity names an unknown channel '${channel}'`);
+      const rank = SEVERITY_ORDER[severity] ?? 0;
+      if (rank <= 0 || rank >= own) {
+        throw new Error(`${rule}: channel_severity '${severity}' on '${channel}' does not rank below the rule's own severity`);
+      }
+      canonical[CHANNEL_ALIASES[channel] ?? channel] = severity;
+    }
+    held.set(rule, canonical);
+  }
+  return held;
+}
+export const CHANNEL_SEVERITY = readChannelSeverity([...PATTERNS, ...MECHANISMS]);
+
+// The one place a rule's `channel_severity` takes effect: every finding of such a rule on its named channel carries the lower
+// severity (the rule's own severity stays in `original_severity`) and the decision is taken from the worst severity left. A
+// result with no such finding comes back as it is. Port of engine.py `_lowered_on_channel`.
+export function lowerForChannel(result, channel, table = CHANNEL_SEVERITY) {
+  if (!table.size) return result;
+  const canonical = CHANNEL_ALIASES[channel] ?? channel;
+  let lowered = false;
+  const findings = result.findings.map((finding) => {
+    const lower = table.get(finding.id)?.[canonical];
+    if (lower !== undefined && (SEVERITY_ORDER[finding.severity] ?? 0) > SEVERITY_ORDER[lower]) {
+      lowered = true;
+      return { ...finding, severity: lower, original_severity: finding.original_severity ?? finding.severity };
+    }
+    return finding;
+  });
+  if (!lowered) return result;
+  let worst = findings[0];
+  for (const f of findings) if ((SEVERITY_ORDER[f.severity] ?? 0) > (SEVERITY_ORDER[worst.severity] ?? 0)) worst = f;
+  return { ...result, findings, decision: SEVERITY_TO_DECISION[worst.severity] ?? "quarantine" };
+}
+
 // Python str.isalnum() is unicode-aware; \p{L}\p{N} is the closest JS
 // equivalent (letters + every numeric category). Wider than ASCII \w, which is
 // why the \w/\b limitation note does not apply to this check.
@@ -1530,7 +1580,11 @@ function unwrapped(text) {
   return t;
 }
 const DECISION_RANK = { allow: 0, allow_redacted: 1, quarantine: 2, block: 3 };
+// The scan as engine.py's `_scan_whole` returns it: the raw scan and the UTF-7 view's, then each rule's `channel_severity` read once.
 export function scan(text, channel = "message") {
+  return lowerForChannel(scanWithView(text, channel), channel);
+}
+function scanWithView(text, channel) {
   const result = scanText(text, channel);
   // Plain ASCII with no way to write a plus has no view.
   if (!NEEDS_VIEW.test(text)) return result;
